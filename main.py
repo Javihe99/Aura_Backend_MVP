@@ -43,9 +43,3 @@ async def get_item(item_id: int):
         if item["id"] == item_id:
             return item
     return {"error": "Item no encontrado"}
-
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.getenv("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
