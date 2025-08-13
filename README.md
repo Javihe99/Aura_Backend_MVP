@@ -37,7 +37,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-4. Visitar http://localhost:8000 en el navegador
+4. Visitar http://localhost:8080 en el navegador
 
 ## Ejecutar con Docker
 
@@ -46,7 +46,7 @@ uvicorn main:app --reload
 docker-compose up -d
 ```
 
-2. Visitar http://localhost:8000 en el navegador
+2. Visitar http://localhost:8080 en el navegador
 
 3. Para detener el contenedor:
 ```
@@ -57,5 +57,5 @@ docker-compose down
 
 Una vez que el servidor esté en funcionamiento, puedes acceder a la documentación interactiva de la API en:
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8080/docs
+- ReDoc: http://localhost:8080/redoc
