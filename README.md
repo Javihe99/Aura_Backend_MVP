@@ -1,55 +1,61 @@
 # Aura Backend MVP
 
-A simple FastAPI-based backend API for the Aura application.
+Un backend simple construido con FastAPI que devuelve una lista de diccionarios, empaquetado con Docker.
 
-## Features
+## Estructura del proyecto
 
-- RESTful API endpoints
-- CORS middleware for frontend integration
-- Health check endpoint
-- Sample items endpoint
-
-## Local Development
-
-### Prerequisites
-
-- Python 3.9+
-- pip
-
-### Setup
-
-1. Clone the repository
-2. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Run the development server:
-   ```
-   python run.py
-   ```
-   or
-   ```
-   uvicorn app:app --reload
-   ```
-
-## Testing
-
-Run the tests with pytest:
 ```
-pytest
+Aura_Backend_MVP/
+├── main.py                # Aplicación principal de FastAPI
+├── requirements.txt       # Dependencias del proyecto
+├── Dockerfile             # Configuración para construir la imagen Docker
+├── docker-compose.yml     # Configuración para ejecutar el contenedor
+└── .dockerignore          # Archivos a ignorar en el contenedor
 ```
 
-## API Documentation
+## Endpoints disponibles
 
-When running locally, access the API documentation at:
-- http://localhost:8000/docs (Swagger UI)
-- http://localhost:8000/redoc (ReDoc)
+- `GET /`: Mensaje de bienvenida
+- `GET /items`: Devuelve la lista completa de items
+- `GET /items/{item_id}`: Devuelve un item específico por su ID
 
-## Deployment
+## Ejecutar localmente (sin Docker)
 
-See [deployment_guide.md](deployment_guide.md) for instructions on deploying to PythonAnywhere.
+1. Crear un entorno virtual:
+```
+python -m venv .venv
+.\.venv\Scripts\activate  # En Windows
+```
 
-## API Endpoints
+2. Instalar dependencias:
+```
+pip install -r requirements.txt
+```
 
-- `GET /health` - Health check endpoint
-- `GET /items` - Returns a list of sample items
+3. Ejecutar el servidor:
+```
+uvicorn main:app --reload
+```
+
+4. Visitar http://localhost:8000 en el navegador
+
+## Ejecutar con Docker
+
+1. Construir y ejecutar el contenedor:
+```
+docker-compose up -d
+```
+
+2. Visitar http://localhost:8000 en el navegador
+
+3. Para detener el contenedor:
+```
+docker-compose down
+```
+
+## Documentación de la API
+
+Una vez que el servidor esté en funcionamiento, puedes acceder a la documentación interactiva de la API en:
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc

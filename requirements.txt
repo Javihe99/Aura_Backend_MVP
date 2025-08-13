@@ -1,8 +1,3 @@
-fastapi==0.103.0
+fastapi==0.103.1
 uvicorn==0.23.2
-pytest==7.4.0
-httpx==0.24.1
-# For deployment
-gunicorn==21.2.0
-python-multipart==0.0.6
-
+pydantic==2.3.0
