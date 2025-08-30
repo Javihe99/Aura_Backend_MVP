@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse
 
 from idealista_hook import IdealistaHook
 from ai_parse import get_llm_result
-from utils import get_area_by_giving_district, to_idealista_multipolygon
+from utils import get_area_by_giving_district, to_idealista_multipolygon, create_meter_radius_circle
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +57,16 @@ async def root():
 {}
 
 
+def get_idealista_properties(prompt_result: dict) -> pd.DataFrame:
+    property = IdealistaHook()
+    property.update_token()
+    status, dict = property.search_properties_by_coordinates(**prompt_result)
+    df = pd.json_normalize(dict['elementList'])
+    logging.info(f"Se han encontrado un total de {len(df)} propiedades")
+    df = df.replace({np.nan: None})
+    return df
+
+
 @app.post("/new_prompt")
 async def new_prompt(request: dict):
     logging.info(request)
@@ -64,21 +74,56 @@ async def new_prompt(request: dict):
     limit = pd.to_numeric(limit)
     logging.info("Prompt del usuario: " + request["prompt"])
     logging.info("El limite será: " + str(limit) + " entradas")
-    prompt_result = get_llm_result(request["prompt"])
-    prompt_result_final = get_llm_result(prompt_result,
-                                         system_instruction='Comprueba si locationName es un barrio reconocible por Nominatim o son coordenadas. Si la respuesta es no, cambia al nombre que más se ajuste, deja el resto igual')
-    property = IdealistaHook()
-    property.update_token()
-    coordinates = get_area_by_giving_district(prompt_result["locationName"])
-    geojson_str = to_idealista_multipolygon(coordinates)
-    prompt_result_final['shape'] = geojson_str
-    status, dict = property.search_properties_by_coordinates(**prompt_result_final)
+    prompt_result_final = {}
+    try:
+        prompt_result = get_llm_result(request["prompt"])
+        prompt_result_final = get_llm_result(prompt_result,
+                                             system_instruction='Comprueba si locationName es un barrio reconocible por Nominatim. Si la respuesta es no, cambia al barrio que más se ajuste, deja el resto igual')
+        coordinates = get_area_by_giving_district(prompt_result["locationName"])
+        geojson_str = to_idealista_multipolygon(coordinates)
+        prompt_result_final['shape'] = geojson_str
+        df = get_idealista_properties(prompt_result_final)
+        records = df.head(limit).to_dict(orient='records')
+        logging.info(f"Propiedades encontradas: {len(records)}")
+        return JSONResponse(content=jsonable_encoder(records))
+    except Exception as e:
+        logging.error(f"Error creating multipolygon: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            **prompt_result_final,
+        }
 
-    df = pd.json_normalize(dict['elementList'])
-    df = df.replace({np.nan: None})
-    records = df.head(limit).to_dict(orient='records')
-    logging.info(f"Propiedades encontradas: {len(records)}")
-    return JSONResponse(content=jsonable_encoder(records))
+
+@app.post("/new_maps")
+async def new_maps(request: dict):
+    lng = request.get("lng")
+    lng = pd.to_numeric(lng)
+    lat = request.get("lat")
+    lat = pd.to_numeric(lat)
+    limit = request.get("limit", "200")
+    limit = pd.to_numeric(limit)
+    metro = request.get("metro", "1000")
+    metro = pd.to_numeric(metro)
+    logging.info(f"Creating radius circle around coordinates: lng={lng}, lat={lat}")
+    prompt_result_final = {}
+    try:
+        circle = create_meter_radius_circle(lat, lng, metro)
+        multipolygon_str = to_idealista_multipolygon(circle)
+        prompt_result_final['shape'] = multipolygon_str
+        df = get_idealista_properties(prompt_result_final)
+        logging.info("Successfully created multipolygon for 1km radius")
+        records = df.head(limit).to_dict(orient='records')
+        logging.info(f"Propiedades encontradas: {len(records)}")
+        return JSONResponse(content=jsonable_encoder(records))
+
+    except Exception as e:
+        logging.error(f"Error creating multipolygon: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "coordinates": {"lng": lng, "lat": lat}
+        }
 
 
 @app.get("/2properties")
@@ -198,7 +243,8 @@ if __name__ == "__main__":
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
 """
-curl -X POST "http://localhost:8000/new_prompt" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"prompt\":\"quiero un piso en arguelles\"}"
+curl -X POST "http://localhost:8000/new_maps" -H "Content-Type: application/json" -d "{\"lng\":\"-3.716641\",\"lat\":\"40.427048\"}"
+"""
+"""
+curl -X POST "http://localhost:8000/new_prompt" -H "Content-Type: application/json" -d "{\"prompt\":\"Quiero un piso en la Nucia Alicante\"}"
 """

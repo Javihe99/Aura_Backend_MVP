@@ -6,7 +6,11 @@ from typing import List, Union
 
 import folium
 import osmnx as ox
-from shapely.geometry import Polygon, MultiPolygon, mapping
+from shapely.geometry import Polygon, MultiPolygon, mapping, Point
+from shapely.ops import transform
+import pyproj
+from functools import partial
+import math
 
 
 class LLMModel(Enum):
@@ -15,12 +19,14 @@ class LLMModel(Enum):
     CLAUDE = "claude"
     GEMINI = "gemini"
 
+
 class LLMVersion(Enum):
     """Enumeración de los diferentes modelos de LLM disponibles."""
     OPENAI_4_1_MINI = "gpt-4o-mini"
     OPENAI_4_1_NANO = "gpt-4.1-nano"
-    CLAUDE = "claude-3-sonnet-20240229"
-    GEMINI_2_0_FLASH_EXP = "gemini-1.5-flash"
+    CLAUDE_3_SONNET_20240229 = "claude-3-sonnet-20240229"
+    GEMINI_1_5_FLASH_EXP = "gemini-1.5-flash"
+
 
 def get_area_by_giving_district(query: str) -> Polygon:
     gdf = ox.geocode_to_gdf(query)
@@ -33,7 +39,7 @@ def get_area_by_giving_district(query: str) -> Polygon:
     return geom
 
 
-def create_interactive_map(geom: Union[Polygon,MultiPolygon], output_html: str = "map.html"):
+def create_interactive_map(geom: Union[Polygon, MultiPolygon], output_html: str = "map.html"):
     if geom.geom_type == 'Polygon':
         coords = list(geom.exterior.coords)
     else:
@@ -74,8 +80,9 @@ def find_hmac_sha256(message, key):
         return signature
     except Exception:
         return None
-def to_idealista_multipolygon(geom: Union[Polygon, MultiPolygon]) -> str:
 
+
+def to_idealista_multipolygon(geom: Union[Polygon, MultiPolygon]) -> str:
     """
     Convierte coordenadas de un polígono a formato Idealista
     """
@@ -89,3 +96,31 @@ def to_idealista_multipolygon(geom: Union[Polygon, MultiPolygon]) -> str:
     # Dump to JSON string
     geojson_str = json.dumps(geojson)
     return geojson_str
+
+
+def create_meter_radius_circle(lat: float, lng: float, metro: int) -> Polygon:
+    # Create a point at the given coordinates
+    point = Point(lng, lat)
+    proj_string = "+proj=utm +zone=30 +ellps=GRS80 +units=m +no_defs"
+
+    # Create the projection
+    project = partial(
+        pyproj.transform,
+        pyproj.Proj('EPSG:4326'),  # source coordinate system (WGS84)
+        pyproj.Proj(proj_string)  # target coordinate system (UTM)
+    )
+    
+    # Transform the point to UTM
+    point_utm = transform(project, point)
+    circle_utm = point_utm.buffer(metro)  # radius in meters
+
+    # Transform back to WGS84
+    project_back = partial(
+        pyproj.transform,
+        pyproj.Proj(proj_string),  # source coordinate system (UTM)
+        pyproj.Proj('EPSG:4326')  # target coordinate system (WGS84)
+    )
+
+    circle_wgs84 = transform(project_back, circle_utm)
+
+    return circle_wgs84
