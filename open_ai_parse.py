@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import settings
 
 load_dotenv()
+print(os.getenv('GOOGLE_API_KEY'))
 genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
 import logging
 
