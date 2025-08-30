@@ -1,0 +1,77 @@
+import hashlib
+import hmac
+import json
+from typing import List, Union
+
+import folium
+import osmnx as ox
+from shapely.geometry import Polygon, MultiPolygon, mapping
+
+
+def get_area_by_giving_district(query: str) -> Polygon:
+    gdf = ox.geocode_to_gdf(query)
+    # Si hay múltiples geometrías (multipolygon), elegir la de mayor área
+    gdf = gdf.explode(index_parts=False)
+    gdf['area'] = gdf.geometry.area
+    gdf = gdf.sort_values('place_rank', ascending=False).reset_index(drop=True)
+    geom = gdf.loc[0, 'geometry']
+
+    return geom
+
+
+def create_interactive_map(geom: Union[Polygon,MultiPolygon], output_html: str = "map.html"):
+    if geom.geom_type == 'Polygon':
+        coords = list(geom.exterior.coords)
+    else:
+        raise ValueError("Geometría no soportada: {}".format(geom.geom_type))
+    # Folium expects coords in [lat, lon] order
+    coords_latlon = [(lat, lon) for lon, lat in coords]
+
+    # Center map on the polygon centroid
+    center_lat = sum(lat for lat, _ in coords_latlon) / len(coords_latlon)
+    center_lon = sum(lon for _, lon in coords_latlon) / len(coords_latlon)
+
+    # Create map
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
+
+    # Add polygon
+    folium.Polygon(
+        locations=coords_latlon,
+        color="blue",
+        weight=2,
+        fill=True,
+        fill_opacity=0.3
+    ).add_to(m)
+
+    # Save to HTML
+    m.save(output_html)
+
+
+def find_hmac_sha256(message, key):
+    # print(f"Finding HMAC SHA256 for message: {message} and key: {key}")
+    try:
+        # Create HMAC SHA256 hash
+        h = hmac.new(key.encode('utf-8'),
+                     message.encode('utf-8'),
+                     hashlib.sha256)
+
+        # Get hex digest
+        signature = h.hexdigest()
+        return signature
+    except Exception:
+        return None
+def to_idealista_multipolygon(geom: Union[Polygon, MultiPolygon]) -> str:
+
+    """
+    Convierte coordenadas de un polígono a formato Idealista
+    """
+    if geom.geom_type == 'Polygon':
+        poly = MultiPolygon([geom])
+    else:
+        poly = geom
+    geojson = mapping(poly)
+    geojson["coordinates"] = [[[[x, y, 0] for x, y in ring] for ring in polygon]
+                              for polygon in geojson["coordinates"]]
+    # Dump to JSON string
+    geojson_str = json.dumps(geojson)
+    return geojson_str
