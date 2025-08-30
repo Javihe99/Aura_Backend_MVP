@@ -1,13 +1,14 @@
 # pip install openai
 import os
 import json
-
+import logging
 import google.generativeai as genai
 from dotenv import load_dotenv
 import settings
 
 load_dotenv()
 print(os.getenv('GOOGLE_API_KEY'))
+logging.info("Google API Key loaded"+str(os.getenv('GOOGLE_API_KEY')))
 genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
 import logging
 
