@@ -55,7 +55,7 @@ async def root():
 
 
 @app.post("/new_prompt")
-async def new_prompt(request: RequestData):
+async def new_prompt(request: dict):
     logging.info(request)
     logging.info("Prompt del usuario: " + request["prompt"])
     prompt_result = get_llm_result(request["prompt"])
