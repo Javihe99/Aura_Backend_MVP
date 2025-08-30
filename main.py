@@ -9,7 +9,7 @@ import pandas as pd
 from starlette.responses import JSONResponse
 
 from idealista_hook import IdealistaHook
-from open_ai_parse import get_llm_result
+from ai_parse import get_llm_result
 from utils import get_area_by_giving_district, to_idealista_multipolygon
 import logging
 
@@ -54,13 +54,19 @@ async def root():
     return {"message": "Bienvenido al Backend MVP de Aura"}
 
 
+{}
+
+
 @app.post("/new_prompt")
-async def new_prompt(request: RequestData):
+async def new_prompt(request: dict):
     logging.info(request)
+    limit = request.get("limit", "200")
+    limit = pd.to_numeric(limit)
     logging.info("Prompt del usuario: " + request["prompt"])
+    logging.info("El limite será: " + str(limit) + " entradas")
     prompt_result = get_llm_result(request["prompt"])
     prompt_result_final = get_llm_result(prompt_result,
-                                   system_instruction='Comprueba si locationName es un barrio reconocible por Nominatim o son coordenadas. Si la respuest es no, cambia al nombre que más se ajuste, deja el resto igual')
+                                         system_instruction='Comprueba si locationName es un barrio reconocible por Nominatim o son coordenadas. Si la respuesta es no, cambia al nombre que más se ajuste, deja el resto igual')
     property = IdealistaHook()
     property.update_token()
     coordinates = get_area_by_giving_district(prompt_result["locationName"])
@@ -70,7 +76,7 @@ async def new_prompt(request: RequestData):
 
     df = pd.json_normalize(dict['elementList'])
     df = df.replace({np.nan: None})
-    records = df.to_dict(orient='records')
+    records = df.head(limit).to_dict(orient='records')
     logging.info(f"Propiedades encontradas: {len(records)}")
     return JSONResponse(content=jsonable_encoder(records))
 
@@ -133,8 +139,8 @@ async def get_2_properties():
                    'priceInfo.price.priceDropInfo.formerPrice': None,
                    'priceInfo.price.priceDropInfo.priceDropValue': None,
                    'priceInfo.price.priceDropInfo.priceDropPercentage': None, 'multimedia.images': [{
-                                                                                                        'url': 'https://img4.idealista.com/blur/480_360_mq/0/id.pro.es.image.master/5e/3a/cf/1321745621.webp',
-                                                                                                        'tag': 'balcony'}],
+                      'url': 'https://img4.idealista.com/blur/480_360_mq/0/id.pro.es.image.master/5e/3a/cf/1321745621.webp',
+                      'tag': 'balcony'}],
                    'multimedia.videos': [{'url': 'https://st3v.idealista.com/cb/bc/ea/1321745849.mp4',
                                           'thumbnail': 'https://st3v.idealista.com/cb/bc/ea/d_0_1321745849.jpg',
                                           'multimediaId': 1321745849, 'hasExternalVideoPlayer': False}],
@@ -191,3 +197,8 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
+"""
+curl -X POST "http://localhost:8000/new_prompt" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"prompt\":\"quiero un piso en arguelles\"}"
+"""

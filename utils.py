@@ -1,12 +1,26 @@
 import hashlib
 import hmac
 import json
+from enum import Enum
 from typing import List, Union
 
 import folium
 import osmnx as ox
 from shapely.geometry import Polygon, MultiPolygon, mapping
 
+
+class LLMModel(Enum):
+    """Enumeración de los diferentes modelos de LLM disponibles."""
+    OPENAI = "openai"
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+
+class LLMVersion(Enum):
+    """Enumeración de los diferentes modelos de LLM disponibles."""
+    OPENAI_4_1_MINI = "gpt-4o-mini"
+    OPENAI_4_1_NANO = "gpt-4.1-nano"
+    CLAUDE = "claude-3-sonnet-20240229"
+    GEMINI_2_0_FLASH_EXP = "gemini-1.5-flash"
 
 def get_area_by_giving_district(query: str) -> Polygon:
     gdf = ox.geocode_to_gdf(query)
