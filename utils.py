@@ -2,7 +2,11 @@ import hashlib
 import hmac
 import json
 from enum import Enum
-from typing import List, Union
+from typing import List, Union, Optional, Tuple
+import requests
+from difflib import SequenceMatcher
+import logging
+import os
 
 import folium
 import osmnx as ox
@@ -22,21 +26,71 @@ class LLMModel(Enum):
 
 class LLMVersion(Enum):
     """Enumeración de los diferentes modelos de LLM disponibles."""
-    OPENAI_4_1_MINI = "gpt-4o-mini"
+    OPENAI_4_1 = "gpt-4.1"
+    OPENAI_4_1_MINI = "gpt-4.1-mini"
     OPENAI_4_1_NANO = "gpt-4.1-nano"
     CLAUDE_3_SONNET_20240229 = "claude-3-sonnet-20240229"
     GEMINI_1_5_FLASH_EXP = "gemini-1.5-flash"
 
 
-def get_area_by_giving_district(query: str) -> Polygon:
+class GeocodingProvider(Enum):
+    """Available geocoding providers"""
+    NOMINATIM = "nominatim"
+    GOOGLE = "google"
+    HERE = "here"
+    MAPBOX = "mapbox"
+
+
+class LocationType(Enum):
+    """Available geocoding providers"""
+    CITY = "city"
+    NEIGHBORHOOD = "neighborhood"
+    STREET = "street"
+    REGION = "region"
+
+
+def get_area_by_giving_location(query: str, default_location='Madrid,España') -> Polygon:
+    """
+    Enhanced geocoding with multiple providers and fallbacks
+    """
+
+    # 1. Try direct Nominatim search
+    try:
+        geom = _get_nominatim_area(query)
+        if geom:
+            logging.info(f"Found location '{query}' directly in Nominatim Area")
+            return geom
+    except Exception as e:
+        logging.warning(f"Direct Nominatim search failed for '{query}': {e}")
+    try:
+        lat, lon = _get_nominatim_point(query)
+        geom = create_meter_radius_circle(lat, lon, 1000)
+        logging.info(f"Found location '{query}' directly in Nominatim Point. Will return 1km radius circle.")
+        return geom
+    except Exception as e:
+        logging.info(f"Din't found location '{query}'. Returning default location '{default_location}'")
+        geom = _get_nominatim_area(default_location)
+        return geom
+
+
+def _get_nominatim_area(query: str) -> Optional[Polygon]:
+    """Try direct Nominatim search"""
     gdf = ox.geocode_to_gdf(query)
-    # Si hay múltiples geometrías (multipolygon), elegir la de mayor área
+    if gdf.empty:
+        return None
+
+    # If there are multiple geometries, choose the one with highest place_rank
     gdf = gdf.explode(index_parts=False)
     gdf['area'] = gdf.geometry.area
-    gdf = gdf.sort_values('place_rank', ascending=False).reset_index(drop=True)
+    gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True)
     geom = gdf.loc[0, 'geometry']
 
     return geom
+
+
+def _get_nominatim_point(query: str) -> tuple[float, float]:
+    """Try direct Nominatim search"""
+    return ox.geocode(query)
 
 
 def create_interactive_map(geom: Union[Polygon, MultiPolygon], output_html: str = "map.html"):
@@ -109,7 +163,7 @@ def create_meter_radius_circle(lat: float, lng: float, metro: int) -> Polygon:
         pyproj.Proj('EPSG:4326'),  # source coordinate system (WGS84)
         pyproj.Proj(proj_string)  # target coordinate system (UTM)
     )
-    
+
     # Transform the point to UTM
     point_utm = transform(project, point)
     circle_utm = point_utm.buffer(metro)  # radius in meters

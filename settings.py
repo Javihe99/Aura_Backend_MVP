@@ -1,3 +1,42 @@
+import logging
+import logging.config
+
+LOG_CFG = {
+    "version": 1,
+    "disable_existing_loggers": False,   # ¡Importante! No apagues los de terceros
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            "level": "INFO"
+        },
+        # opcional: log a archivo
+        # "file": {
+        #     "class": "logging.FileHandler",
+        #     "filename": "app.log",
+        #     "formatter": "standard",
+        #     "level": "INFO",
+        #     "encoding": "utf-8"
+        # }
+    },
+    "root": {                     # <- esto fija el nivel global
+        "level": "INFO",
+        "handlers": ["console"]   # , "file"
+    },
+    # overrides opcionales para librerías ruidosas
+    # "loggers": {
+    #     "urllib3": {"level": "WARNING", "propagate": True},
+    #     "botocore": {"level": "WARNING", "propagate": True},
+    # }
+}
+
+logging.config.dictConfig(LOG_CFG)
+
 IDEALISTA_SYSTEM_INSTRUCTIONS = """
 Eres un asistente que trabaja para una empresa inmobiliaria. Vas a recibir un texto con la petición de un cliente y tu tarea es transformarlo en un JSON cuyos campos correspondan a los parámetros listados más abajo.
 
@@ -86,4 +125,34 @@ Ejemplo de salida JSON (para petición: “Quiero un piso de 2 habitaciones en U
   "garage": True
 }
 Booleanos deben ser True o False, no "true" o "false".
+"""
+
+LOCATION_VALIDATION_PROMPT = """
+Eres un experto en geografía española y validación de ubicaciones. Tu tarea es validar y corregir nombres de ubicaciones para que sean reconocibles por el servicio de geocodificación Nominatim.
+
+INSTRUCCIONES:
+1. Analiza el nombre de ubicación proporcionado
+2. Si es válido y reconocible, devuélvelo tal como está
+3. Si es incorrecto, ambiguo o no reconocible, corrígelo al calle, barrio o ciudad más parecido
+4. Prioriza ubicaciones en España
+5. Para barrios, incluye la ciudad principal
+6. Usa nombres oficiales y reconocibles
+
+FORMATO DE RESPUESTA:
+{
+  "original_location": "ubicación original",
+  "corrected_location": "ubicación corregida o la misma si es válida",
+  "confidence": 0.95,
+  "reason": "explicación de la corrección o por qué es válida",
+  "location_type": "city|neighborhood|street|region"
+}
+
+EJEMPLOS:
+- "Usera" → "Usera, Madrid, España"
+- "La Nucia" → "La Nucía, Alicante, España"
+- "Salamanca" → "Salamanca, Madrid, España" (si es barrio) o "Salamanca, España" (si es ciudad)
+- "Calle Gran Vía" → "Gran Vía, Madrid, España"
+- "Barcelona centro" → "Ciutat Vella, Barcelona, España"
+
+Si no puedes determinar una ubicación válida, usa "Madrid, España" como fallback.
 """
