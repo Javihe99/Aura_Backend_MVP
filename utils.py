@@ -81,8 +81,11 @@ def _get_nominatim_area(query: str) -> Optional[Polygon]:
 
     # If there are multiple geometries, choose the one with highest place_rank
     gdf = gdf.explode(index_parts=False)
+
     gdf['area'] = gdf.geometry.area
-    gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True)
+    gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True).ilco[0]
+    if gdf['area'] < 0.1:
+        raise Exception("Area too small")
     geom = gdf.loc[0, 'geometry']
 
     return geom
@@ -90,7 +93,8 @@ def _get_nominatim_area(query: str) -> Optional[Polygon]:
 
 def _get_nominatim_point(query: str) -> tuple[float, float]:
     """Try direct Nominatim search"""
-    return ox.geocode(query)
+    result = ox.geocode(query)
+    return result
 
 
 def create_interactive_map(geom: Union[Polygon, MultiPolygon], output_html: str = "map.html"):

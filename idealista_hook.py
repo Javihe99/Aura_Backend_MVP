@@ -96,12 +96,14 @@ class IdealistaHook:
             "t": "",
             "k": ""
         }
-        #propertyType is required, default to 'homes'
+        # propertyType is required, default to 'homes'
         payload['propertyType'] = kwargs.get('propertyType', 'homes')
         payload['operation'] = kwargs.get('operation', 'sale')
         payload['locale'] = kwargs.get('locale', 'es')
         payload['quality'] = kwargs.get('quality', 'high')
-        payload['order'] = kwargs.get('order', 'weigh')
+        payload['order'] = kwargs.get('order', 'ratioeurm2') #Best price per m2
+        payload['gallery'] = True
+
 
         # Aplicar lógica de sort automático si es necesario
         if kwargs.get("order") == 'floor_desc':
@@ -190,5 +192,3 @@ class IdealistaHook:
                 "error": response.text,
                 "status_code": response.status_code,
             }
-
-
