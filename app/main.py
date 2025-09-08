@@ -16,6 +16,7 @@ from app.services.ai_parse import get_llm_result, validate_and_correct_location
 from app.services.concurrency_manager import RequestLimiter, AsyncTaskManager
 # Importar servicios
 from app.services.memory_manager import ConversationMemory
+from app.services.property_manager import PropertyManager
 from app.services.property_summarizer import PropertySummarizer
 from app.services.quality_filter import PropertyQualityFilter
 # Importar utilidades existentes
@@ -65,6 +66,7 @@ async def lifespan(app: FastAPI):
 
     # Inicializar componentes
     app.state.memory_manager = ConversationMemory()
+    app.state.property_manager = PropertyManager()
     app.state.quality_filter = PropertyQualityFilter()
     app.state.summarizer = PropertySummarizer()
     app.state.request_limiter = RequestLimiter(max_concurrent=10, rate_limit_per_minute=100)
@@ -113,6 +115,7 @@ app = FastAPI(
     {
       "prompt": "Quiero un piso de 2 habitaciones en Usera con garaje por menos de 200.000€",
       "session_id": "user_123",
+      "ip_address": "192.168.1.1",
       "limit": 20
     }
     ```
@@ -174,7 +177,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
     """
     # Obtener o crear sesión
     session_id = await app.state.memory_manager.get_or_create_session(
-        request.session_id, request.user_id
+        request.session_id, request.ip_address
     )
 
     # Verificar límite de concurrencia
@@ -191,7 +194,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Guardar mensaje del usuario
         background_tasks.add_task(
             app.state.memory_manager.save_message,
-            session_id, "user", request.prompt
+            session_id, "user", request.prompt, None, request.ip_address
         )
 
         # Procesar con LLM incluyendo contexto
@@ -229,17 +232,31 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         if not df.empty:
             df = app.state.quality_filter.filter_and_rank_properties(df, top_n=request.limit * 2)
 
-        # Limitar resultados
+        # Limitar resultados y convertir a lista de diccionarios
         records = df.head(request.limit).to_dict(orient='records')
 
         # Generar resumen con LLM
         summary = await app.state.summarizer.generate_summary(records, conversation_context=conversation_context)
 
-        # Guardar respuesta del asistente
+        # Valor un pesado eliminar 'shape' del prompt_result antes de guardarlo
+        del prompt_result['shape']
+
+        # Guardar propiedades en la base de datos (por separado)
+        background_tasks.add_task(
+            app.state.property_manager.save_properties,
+            records
+        )
+
+        # Guardar conversación del asistente (por separado)
+        # Extraer property_list usando pandas (más eficiente)
+        property_list = df['propertycode'].tolist() if not df.empty else []
+        
         background_tasks.add_task(
             app.state.memory_manager.save_message,
             session_id, "assistant", summary,
-            {"properties_found": len(records), "search_params": prompt_result}
+            {"properties_found": len(records), "search_params": prompt_result,
+             "property_list": property_list,
+             "llm_summary": summary}, request.ip_address
         )
 
         return ChatResponse(
@@ -268,7 +285,7 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
     """
     # Obtener o crear sesión
     session_id = await app.state.memory_manager.get_or_create_session(
-        request.session_id, None
+        request.session_id, request.ip_address
     )
 
     try:
@@ -300,11 +317,21 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             search_description
         )
 
-        # Guardar en historial
+        # Guardar propiedades en la base de datos (por separado)
+        background_tasks.add_task(
+            app.state.property_manager.save_properties,
+            records
+        )
+
+        # Guardar conversación en historial (por separado)
+        # Extraer property_list usando pandas (más eficiente)
+        property_list = df['propertycode'].tolist() if not df.empty else []
+        
         background_tasks.add_task(
             app.state.memory_manager.save_message,
             session_id, "system", search_description,
-            {"lat": request.lat, "lng": request.lng, "radius": request.metro, "properties_found": len(records)}
+            {"lat": request.lat, "lng": request.lng, "radius": request.metro, 
+             "properties_found": len(records), "property_list": property_list}, request.ip_address
         )
 
         return ChatResponse(
@@ -337,6 +364,36 @@ async def get_conversation_history(session_id: str):
         history=history,
         message_count=len(history)
     )
+
+
+@app.get("/properties/{session_id}", tags=["Properties"])
+async def get_properties_by_session(session_id: str):
+    """
+    🏠 Obtiene todas las propiedades relacionadas con una sesión específica.
+    
+    Devuelve todas las propiedades que han sido mostradas en las conversaciones
+    de la sesión especificada.
+    """
+    properties = await app.state.property_manager.get_properties_by_session(session_id)
+    return {
+        "session_id": session_id,
+        "properties": properties,
+        "total_properties": len(properties)
+    }
+
+
+@app.get("/property/{property_code}", tags=["Properties"])
+async def get_property_by_code(property_code: str):
+    """
+    🏠 Obtiene una propiedad específica por su código.
+    
+    Devuelve todos los detalles de una propiedad específica.
+    """
+    property_data = await app.state.property_manager.get_property_by_code(property_code)
+    if not property_data:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    return property_data
 
 
 @app.get("/health", response_model=HealthResponse, tags=["General"])
@@ -376,7 +433,7 @@ async def new_prompt_legacy(request: dict):
         prompt=request.get("prompt", ""),
         limit=int(request.get("limit", 200)),
         session_id=request.get("session_id"),
-        user_id=request.get("user_id")
+        ip_address=request.get("ip_address")
     )
 
     # Usar el nuevo endpoint
@@ -398,7 +455,8 @@ async def new_maps_legacy(request: dict):
         lat=float(request.get("lat", 0)),
         limit=int(request.get("limit", 200)),
         metro=int(request.get("metro", 1000)),
-        session_id=request.get("session_id")
+        session_id=request.get("session_id"),
+        ip_address=request.get("ip_address")
     )
 
     # Usar el nuevo endpoint

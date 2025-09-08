@@ -1,5 +1,6 @@
 import logging
 from typing import Dict
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class PropertyQualityFilter:
         
         logger.info(f"Filtered {len(properties_df)} properties to {len(filtered_df)} high-quality properties")
         return filtered_df.head(top_n)
+
 
 
 

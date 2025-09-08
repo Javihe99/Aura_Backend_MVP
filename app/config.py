@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -76,6 +77,7 @@ class Config:
 
 # Instancia global de configuración
 config = Config()
+
 
 
 
