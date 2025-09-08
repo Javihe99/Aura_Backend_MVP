@@ -6,7 +6,7 @@ class ChatRequest(BaseModel):
     """Modelo de solicitud de chat con memoria"""
     prompt: str = Field(..., description="Mensaje del usuario")
     session_id: Optional[str] = Field(None, description="ID de sesión para memoria")
-    user_id: Optional[str] = Field(None, description="ID de usuario")
+    ip_address: Optional[str] = Field(None, description="Dirección IP del usuario")
     limit: int = Field(20, description="Número máximo de propiedades a devolver", ge=1, le=200)
 
 
@@ -17,6 +17,7 @@ class MapSearchRequest(BaseModel):
     limit: int = Field(20, description="Número máximo de propiedades", ge=1, le=200)
     metro: int = Field(1000, description="Radio en metros", ge=100, le=5000)
     session_id: Optional[str] = Field(None, description="ID de sesión")
+    ip_address: Optional[str] = Field(None, description="Dirección IP del usuario")
 
 
 class ChatResponse(BaseModel):

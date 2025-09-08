@@ -117,3 +117,6 @@ class PropertySummarizer:
         except Exception as e:
             logger.error(f"Error generating search summary: {e}")
             return f"Búsqueda completada. Se encontraron {total_found} propiedades."
+
+
+

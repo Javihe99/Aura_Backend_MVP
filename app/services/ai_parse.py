@@ -1,15 +1,16 @@
 # pip install openai
-import os
 import json
 import logging
-import google.generativeai as genai
+import os
 
+import google.generativeai as genai
+from dotenv import load_dotenv
+from openai import OpenAI
+
+import settings
 from settings import LOCATION_VALIDATION_PROMPT
 from utils import LLMModel
 from utils import LLMVersion
-from dotenv import load_dotenv
-from openai import OpenAI
-import settings
 
 load_dotenv()
 logging.info("Google API Key loaded: " + str(bool(os.getenv('GOOGLE_API_KEY'))))
@@ -303,6 +304,7 @@ if __name__ == "__main__":
         print(json.dumps(data_gemini, ensure_ascii=False, indent=2))
     except Exception as e:
         print(f"Error con Gemini: {e}")
+
 
 
 
