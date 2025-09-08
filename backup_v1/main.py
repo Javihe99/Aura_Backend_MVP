@@ -1,15 +1,17 @@
-import logging
-
 import numpy as np
-import pandas as pd
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from httpx._types import RequestData
+from pydantic import BaseModel
+from typing import Optional
+import pandas as pd
 from starlette.responses import JSONResponse
-
-from ai_parse import get_llm_result, validate_and_correct_location
 from idealista_hook import IdealistaHook
+from ai_parse import get_llm_result, validate_and_correct_location
 from utils import get_area_by_giving_location, to_idealista_multipolygon, create_meter_radius_circle, LocationType
+import logging
+
 
 app = FastAPI(title="Aura Backend",
               description="Backend que devuelve diferentes propiedades para el frontend de Aura",
@@ -155,5 +157,5 @@ if __name__ == "__main__":
 curl -X POST "http://localhost:8000/new_maps" -H "Content-Type: application/json" -d "{\"lng\":\"-3.716641\",\"lat\":\"40.427048\"}"
 """
 """
-curl -X POST "http://127.0.0.1:8001/chat" -H "Content-Type: application/json" -d "{\"session_id\":\"4ec53f77b4fe88e1888984d93a605845\"}"
+curl -X POST "http://localhost:8000/new_prompt" -H "Content-Type: application/json" -d "{\"prompt\":\"Quiero un piso en norte de madrid\"}"
 """

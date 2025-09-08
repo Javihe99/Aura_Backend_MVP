@@ -82,11 +82,9 @@ def _get_nominatim_area(query: str) -> Optional[Polygon]:
     # If there are multiple geometries, choose the one with highest place_rank
     gdf = gdf.explode(index_parts=False)
 
-    # Convert to projected CRS for accurate area calculation
-    gdf_projected = gdf.to_crs('EPSG:3857')  # Web Mercator projection
-    gdf['area'] = gdf_projected.geometry.area
-    gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True).iloc[0]
-    if gdf['area'] > 10**-6 : # Arguelles está en torno a 2.5e-6
+    gdf['area'] = gdf.geometry.area
+    gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True).ilco[0]
+    if gdf['area'] < 0.1:
         raise Exception("Area too small")
     geom = gdf.loc[0, 'geometry']
 
@@ -163,17 +161,23 @@ def create_meter_radius_circle(lat: float, lng: float, metro: int) -> Polygon:
     point = Point(lng, lat)
     proj_string = "+proj=utm +zone=30 +ellps=GRS80 +units=m +no_defs"
 
-    # Create the projection using Transformer
-    transformer = pyproj.Transformer.from_crs('EPSG:4326', proj_string, always_xy=True)
-    project = partial(transformer.transform)
+    # Create the projection
+    project = partial(
+        pyproj.transform,
+        pyproj.Proj('EPSG:4326'),  # source coordinate system (WGS84)
+        pyproj.Proj(proj_string)  # target coordinate system (UTM)
+    )
 
     # Transform the point to UTM
     point_utm = transform(project, point)
     circle_utm = point_utm.buffer(metro)  # radius in meters
 
     # Transform back to WGS84
-    transformer_back = pyproj.Transformer.from_crs(proj_string, 'EPSG:4326', always_xy=True)
-    project_back = partial(transformer_back.transform)
+    project_back = partial(
+        pyproj.transform,
+        pyproj.Proj(proj_string),  # source coordinate system (UTM)
+        pyproj.Proj('EPSG:4326')  # target coordinate system (WGS84)
+    )
 
     circle_wgs84 = transform(project_back, circle_utm)
 
