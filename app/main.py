@@ -249,7 +249,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
 
         # Guardar conversación del asistente (por separado)
         # Extraer property_list usando pandas (más eficiente)
-        property_list = df['propertycode'].tolist() if not df.empty else []
+        property_list = df['propertyCode'].tolist() if not df.empty else []
         
         background_tasks.add_task(
             app.state.memory_manager.save_message,
