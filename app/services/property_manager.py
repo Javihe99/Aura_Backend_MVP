@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from supabase import create_client, Client
 import os
 import pandas as pd
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,49 @@ class PropertyManager:
         current_time = datetime.now().isoformat()
         df_processed['created_at'] = current_time
         df_processed['updated_at'] = current_time
+        
+        # Mapear columnas del DataFrame a nombres de la base de datos
+        column_mapping = {
+            'propertyCode': 'propertycode',
+            'numPhotos': 'numphotos',
+            'propertyType': 'propertytype',
+            'locationId': 'locationid',
+            'showAddress': 'showaddress',
+            'hasVideo': 'hasvideo',
+            'newDevelopment': 'newdevelopment',
+            'newProperty': 'newproperty',
+            'hasLift': 'haslift',
+            'priceByArea': 'pricebyarea',
+            'hasPlan': 'hasplan',
+            'has3DTour': 'has3dtour',
+            'has360': 'has360',
+            'hasStaging': 'hasstaging',
+            'topNewDevelopment': 'topnewdevelopment',
+            'topPlus': 'topplus',
+            'preferenceHighlight': 'preferencehighlight',
+            'topHighlight': 'tophighlight',
+            'urgentVisualHighlight': 'urgentvisualhighlight',
+            'visualHighlight': 'visualhighlight',
+            'priceDropValue': 'pricedropvalue',
+            'dropDate': 'dropdate',
+            'priceDropPercentage': 'pricedroppercentage',
+            'newDevelopmentFinished': 'newdevelopmentfinished',
+            'highlightComment': 'highlightcomment',
+            'externalReference': 'externalreference'
+        }
+        
+        # Aplicar mapeo de columnas
+        df_processed = df_processed.rename(columns=column_mapping)
+        
+        # Limpiar valores NaN que no son compatibles con JSON
+        df_processed = df_processed.replace({np.nan: None, np.inf: None, -np.inf: None})
+        
+        # Limpiar campos de fecha inválidos
+        date_columns = ['dropdate', 'created_at', 'updated_at']
+        for col in date_columns:
+            if col in df_processed.columns:
+                # Convertir timestamps de milisegundos a formato ISO válido
+                df_processed[col] = df_processed[col].apply(self._clean_date_value)
         
         # Definir columnas esperadas en la base de datos (usando lowercase como están en la DB)
         expected_columns = [
@@ -94,6 +138,30 @@ class PropertyManager:
                 nested_data[nested_key] = value
         return nested_data if nested_data else None
     
+    def _clean_date_value(self, value):
+        """Limpia valores de fecha para que sean compatibles con PostgreSQL"""
+        if pd.isna(value) or value is None:
+            return None
+        
+        try:
+            # Si es un timestamp en milisegundos (número muy grande)
+            if isinstance(value, (int, float)) and value > 1000000000000:  # > año 2001 en milisegundos
+                # Convertir de milisegundos a segundos
+                timestamp = value / 1000
+                # Verificar que esté en un rango válido (año 1970-2100)
+                if 0 <= timestamp <= 4102444800:  # 1970-2100
+                    return datetime.fromtimestamp(timestamp).isoformat()
+                else:
+                    return None
+            
+            # Si ya es una fecha válida
+            elif isinstance(value, str) and value:
+                return value
+            
+            return None
+        except (ValueError, OverflowError, OSError):
+            return None
+    
     async def save_properties(self, properties: List[Dict]) -> bool:
         """Guarda una lista de propiedades en la base de datos usando pandas para eficiencia"""
         if not self.supabase or not properties:
@@ -103,19 +171,19 @@ class PropertyManager:
             # Convertir a DataFrame para operaciones vectorizadas
             df = pd.DataFrame(properties)
             
-            # Filtrar propiedades sin propertycode
-            if 'propertycode' not in df.columns:
-                logger.warning("No propertycode column found in properties data")
+            # Filtrar propiedades sin propertyCode
+            if 'propertyCode' not in df.columns:
+                logger.warning("No propertyCode column found in properties data")
                 return False
             
-            # Eliminar filas sin propertycode
-            df = df.dropna(subset=['propertycode'])
+            # Eliminar filas sin propertyCode
+            df = df.dropna(subset=['propertyCode'])
             if df.empty:
-                logger.warning("No valid properties to save (all missing propertycode)")
+                logger.warning("No valid properties to save (all missing propertyCode)")
                 return False
             
-            # Obtener lista de propertycodes únicos
-            property_codes = df['propertycode'].unique().tolist()
+            # Obtener lista de propertyCodes únicos
+            property_codes = df['propertyCode'].unique().tolist()
             logger.info(f"Processing {len(property_codes)} unique property codes")
             
             # Eliminar propiedades existentes con estos propertycodes (operación vectorizada)

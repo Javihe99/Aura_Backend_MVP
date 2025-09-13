@@ -19,6 +19,7 @@ from app.services.memory_manager import ConversationMemory
 from app.services.property_manager import PropertyManager
 from app.services.property_summarizer import PropertySummarizer
 from app.services.quality_filter import PropertyQualityFilter
+from app.services.intent_classifier import IntentClassifier, SeniorRealEstateAgent
 # Importar utilidades existentes
 from idealista_hook import IdealistaHook
 from utils import get_area_by_giving_location, to_idealista_multipolygon, create_meter_radius_circle
@@ -69,6 +70,8 @@ async def lifespan(app: FastAPI):
     app.state.property_manager = PropertyManager()
     app.state.quality_filter = PropertyQualityFilter()
     app.state.summarizer = PropertySummarizer()
+    app.state.intent_classifier = IntentClassifier()
+    app.state.senior_agent = SeniorRealEstateAgent()
     app.state.request_limiter = RequestLimiter(max_concurrent=10, rate_limit_per_minute=100)
     app.state.task_manager = AsyncTaskManager()
 
@@ -93,10 +96,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Aura Backend MVP",
     description="""
-    ## 🏠 Backend API para búsqueda inteligente de propiedades inmobiliarias
+    ## 🏠 Backend API para asistencia inmobiliaria inteligente
     
     ### ✨ Características principales:
-    - 🤖 **Búsqueda por lenguaje natural** con LLM (OpenAI/Gemini)
+    - 🧠 **Clasificación inteligente de intenciones** usando IA
+    - 🏠 **Búsqueda de propiedades** por lenguaje natural con LLM (OpenAI/Gemini)
+    - 👨‍💼 **Asesor experto** para consultas generales del sector inmobiliario
     - 🗺️ **Búsqueda por coordenadas** geográficas
     - 💾 **Memoria de conversación** persistente con Supabase
     - 🎯 **Filtros de calidad inteligentes** para mejores resultados
@@ -105,15 +110,27 @@ app = FastAPI(
     - 🔄 **Historial de conversaciones** por sesión/usuario
     
     ### 🚀 Endpoints disponibles:
-    - `POST /chat`: Búsqueda por lenguaje natural con memoria
+    - `POST /chat`: Chat inteligente con clasificación de intenciones
     - `POST /maps`: Búsqueda por coordenadas geográficas
     - `GET /conversation/{session_id}`: Obtener historial de conversación
     - `GET /health`: Estado del servicio y conexiones
     
     ### 📝 Ejemplos de uso:
+    
+    **Búsqueda de propiedades:**
     ```json
     {
       "prompt": "Quiero un piso de 2 habitaciones en Usera con garaje por menos de 200.000€",
+      "session_id": "user_123",
+      "ip_address": "192.168.1.1",
+      "limit": 20
+    }
+    ```
+    
+    **Consulta general:**
+    ```json
+    {
+      "prompt": "¿Cómo funciona el proceso de compra de una vivienda?",
       "session_id": "user_123",
       "ip_address": "192.168.1.1",
       "limit": 20
@@ -152,7 +169,9 @@ async def root():
         "docs": "/docs",
         "health": "ok",
         "features": [
+            "Clasificación inteligente de intenciones",
             "Búsqueda inteligente por LLM",
+            "Asesor experto inmobiliario",
             "Memoria de conversación",
             "Filtros de calidad",
             "Gestión de concurrencia"
@@ -163,17 +182,26 @@ async def root():
 @app.post("/chat", response_model=ChatResponse, tags=["Search"])
 async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
     """
-    🔍 Búsqueda de propiedades mediante lenguaje natural con memoria.
+    🔍 Chat inteligente con clasificación de intenciones y memoria.
     
-    Este endpoint procesa consultas en lenguaje natural, las interpreta usando LLM,
-    mantiene el historial de conversación, y devuelve propiedades relevantes 
-    con un resumen generado automáticamente.
+    Este endpoint procesa consultas en lenguaje natural con un sistema inteligente que:
+    1. **Clasifica la intención** del usuario usando IA
+    2. **Si busca propiedades**: Procesa la búsqueda con LLM y devuelve resultados
+    3. **Si es consulta general**: Responde como un senior de inmobiliaria experto
+    4. **Mantiene memoria** de la conversación para contexto continuo
     
-    ### 📝 Ejemplos de consultas:
+    ### 🏠 Búsquedas de propiedades (ejemplos):
     - "Quiero un piso de 2 habitaciones en Usera con garaje por menos de 200.000€"
     - "Busco casa con jardín en las afueras de Madrid"
     - "Apartamento céntrico con terraza y ascensor en Vigo"
     - "Necesito algo más barato que lo anterior"
+    
+    ### 💼 Consultas generales (ejemplos):
+    - "¿Cómo funciona el proceso de compra de una vivienda?"
+    - "¿Qué documentación necesito para vender mi casa?"
+    - "¿Cuáles son las mejores zonas para invertir en Madrid?"
+    - "¿Qué impuestos debo pagar al comprar un piso?"
+    - "¿Cuál es la diferencia entre compra y alquiler?"
     """
     # Obtener o crear sesión
     session_id = await app.state.memory_manager.get_or_create_session(
@@ -197,6 +225,36 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
             session_id, "user", request.prompt, None, request.ip_address
         )
 
+        # 1. CLASIFICAR INTENCIÓN DEL USUARIO
+        intent_classification = await app.state.intent_classifier.classify_intent(
+            request.prompt, conversation_context
+        )
+        
+        logger.info(f"Intent classification: {intent_classification}")
+        
+        # 2. SI NO ES BÚSQUEDA DE PROPIEDADES, RESPONDER COMO SENIOR DE INMOBILIARIA
+        if intent_classification["intent"] == "general_inquiry":
+            senior_response = await app.state.senior_agent.generate_response(
+                request.prompt, conversation_context
+            )
+            
+            # Guardar respuesta del senior
+            background_tasks.add_task(
+                app.state.memory_manager.save_message,
+                session_id, "assistant", senior_response,
+                {"intent": "general_inquiry", "classification": intent_classification}, 
+                request.ip_address
+            )
+            
+            return ChatResponse(
+                llm_summary=senior_response,
+                properties=[],
+                total_found=0,
+                session_id=session_id,
+                search_params={"intent": "general_inquiry", "classification": intent_classification}
+            )
+
+        # 3. SI ES BÚSQUEDA DE PROPIEDADES, CONTINUAR CON EL FLUJO HABITUAL
         # Procesar con LLM incluyendo contexto
         enhanced_prompt = f"{conversation_context}\n\nNueva consulta: {request.prompt}"
         prompt_result = get_llm_result(enhanced_prompt)
@@ -325,7 +383,7 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
 
         # Guardar conversación en historial (por separado)
         # Extraer property_list usando pandas (más eficiente)
-        property_list = df['propertycode'].tolist() if not df.empty else []
+        property_list = df['propertyCode'].tolist() if not df.empty else []
         
         background_tasks.add_task(
             app.state.memory_manager.save_message,
