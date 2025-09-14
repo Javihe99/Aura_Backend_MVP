@@ -24,7 +24,7 @@ class EmailService:
     def __init__(self):
         # Configuración de email (puedes configurar estas variables en tu .env)
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_port = int(os.getenv("SMTP_PORT", "465"))  # Cambiar a 465 (SSL directo)
         self.sender_email = os.getenv("SENDER_EMAIL", "javihe99@gmail.com")
         self.sender_password = os.getenv("SENDER_PASSWORD")  # App password para Gmail
         self.recipient_email = os.getenv("RECIPIENT_EMAIL", "javihe99@gmail.com")
@@ -296,23 +296,39 @@ class EmailService:
             # Crear contexto SSL
             context = ssl.create_default_context()
             
-            # Conectar al servidor SMTP con timeout
-            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
-                logger.info("✅ Conexión SMTP establecida")
-                
-                logger.info("🔐 Iniciando STARTTLS...")
-                server.starttls(context=context)
-                logger.info("✅ STARTTLS completado")
-                
-                logger.info("🔑 Iniciando login...")
-                server.login(self.sender_email, self.sender_password)
-                logger.info("✅ Login exitoso")
-                
-                # Enviar email
-                logger.info("📤 Enviando email...")
-                text = message.as_string()
-                server.sendmail(self.sender_email, self.recipient_email, text)
-                logger.info("✅ Email enviado al servidor SMTP")
+            # Usar SSL directo si el puerto es 465, STARTTLS si es 587
+            if self.smtp_port == 465:
+                logger.info("🔐 Usando SSL directo (puerto 465)")
+                with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=30, context=context) as server:
+                    logger.info("✅ Conexión SSL establecida")
+                    
+                    logger.info("🔑 Iniciando login...")
+                    server.login(self.sender_email, self.sender_password)
+                    logger.info("✅ Login exitoso")
+                    
+                    # Enviar email
+                    logger.info("📤 Enviando email...")
+                    text = message.as_string()
+                    server.sendmail(self.sender_email, self.recipient_email, text)
+                    logger.info("✅ Email enviado al servidor SMTP")
+            else:
+                logger.info("🔐 Usando STARTTLS (puerto 587)")
+                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                    logger.info("✅ Conexión SMTP establecida")
+                    
+                    logger.info("🔐 Iniciando STARTTLS...")
+                    server.starttls(context=context)
+                    logger.info("✅ STARTTLS completado")
+                    
+                    logger.info("🔑 Iniciando login...")
+                    server.login(self.sender_email, self.sender_password)
+                    logger.info("✅ Login exitoso")
+                    
+                    # Enviar email
+                    logger.info("📤 Enviando email...")
+                    text = message.as_string()
+                    server.sendmail(self.sender_email, self.recipient_email, text)
+                    logger.info("✅ Email enviado al servidor SMTP")
                 
             logger.info("📧 Email enviado exitosamente via SMTP")
             
@@ -323,15 +339,15 @@ class EmailService:
     
     async def _send_email_alternative(self, appointment_data: Dict[str, Any]) -> bool:
         """
-        Método alternativo para enviar emails usando SendGrid
+        Método alternativo para enviar emails usando Resend
         """
         try:
-            logger.info("🔄 Usando método alternativo de envío de email (SendGrid)")
+            logger.info("🔄 Usando método alternativo de envío de email (Resend)")
             
-            # Verificar si SendGrid está configurado
-            sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
-            if not sendgrid_api_key:
-                logger.warning("⚠️ SENDGRID_API_KEY no configurado, usando solo logs")
+            # Verificar si Resend está configurado
+            resend_api_key = os.getenv("RESEND_API_KEY")
+            if not resend_api_key:
+                logger.warning("⚠️ RESEND_API_KEY no configurado, usando solo logs")
                 return await self._log_email_content(appointment_data)
             
             # Crear contenido del email
@@ -339,46 +355,85 @@ class EmailService:
             body = self._create_email_body(appointment_data)
             html_body = self._create_html_email_body(appointment_data)
             
-            # Preparar datos para SendGrid
+            # Preparar datos para Resend
             email_data = {
-                "personalizations": [{
-                    "to": [{"email": self.recipient_email}],
-                    "subject": subject
-                }],
-                "from": {"email": self.sender_email, "name": "Aura Inmobiliaria"},
-                "content": [
-                    {"type": "text/plain", "value": body},
-                    {"type": "text/html", "value": html_body}
-                ]
+                "from": f"Aura Inmobiliaria <{self.sender_email}>",
+                "to": [self.recipient_email],
+                "subject": subject,
+                "text": body,
+                "html": html_body
             }
             
-            # Enviar con SendGrid
+            # Enviar con Resend
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 headers = {
-                    "Authorization": f"Bearer {sendgrid_api_key}",
+                    "Authorization": f"Bearer {resend_api_key}",
                     "Content-Type": "application/json"
                 }
                 
                 async with session.post(
-                    "https://api.sendgrid.com/v3/mail/send",
+                    "https://api.resend.com/emails",
                     json=email_data,
                     headers=headers,
                     timeout=30
                 ) as response:
-                    if response.status == 202:
-                        logger.info("✅ Email enviado exitosamente via SendGrid")
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"✅ Email enviado exitosamente via Resend - ID: {result.get('id')}")
                         return True
                     else:
                         error_text = await response.text()
-                        logger.error(f"❌ Error SendGrid: {response.status} - {error_text}")
+                        logger.error(f"❌ Error Resend: {response.status} - {error_text}")
                         return False
             
         except ImportError:
             logger.error("❌ aiohttp no instalado. Ejecuta: pip install aiohttp")
-            return await self._log_email_content(appointment_data)
+            return await self._try_resend_official(appointment_data)
         except Exception as e:
             logger.error(f"❌ Error en método alternativo: {str(e)}")
+            return await self._try_resend_official(appointment_data)
+    
+    async def _try_resend_official(self, appointment_data: Dict[str, Any]) -> bool:
+        """
+        Intenta usar la librería oficial de Resend
+        """
+        try:
+            logger.info("🔄 Intentando con librería oficial de Resend...")
+            
+            # Verificar si Resend está configurado
+            resend_api_key = os.getenv("RESEND_API_KEY")
+            if not resend_api_key:
+                logger.warning("⚠️ RESEND_API_KEY no configurado, usando solo logs")
+                return await self._log_email_content(appointment_data)
+            
+            # Crear contenido del email
+            subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
+            body = self._create_email_body(appointment_data)
+            html_body = self._create_html_email_body(appointment_data)
+            
+            # Usar librería oficial de Resend
+            import resend
+            
+            resend.api_key = resend_api_key
+            
+            params = {
+                "from": f"Aura Inmobiliaria <{self.sender_email}>",
+                "to": [self.recipient_email],
+                "subject": subject,
+                "text": body,
+                "html": html_body
+            }
+            
+            email = resend.Emails.send(params)
+            logger.info(f"✅ Email enviado exitosamente via Resend (oficial) - ID: {email.get('id')}")
+            return True
+            
+        except ImportError:
+            logger.error("❌ resend no instalado. Ejecuta: pip install resend")
+            return await self._log_email_content(appointment_data)
+        except Exception as e:
+            logger.error(f"❌ Error con Resend oficial: {str(e)}")
             return await self._log_email_content(appointment_data)
     
     async def _log_email_content(self, appointment_data: Dict[str, Any]) -> bool:
