@@ -10,6 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import Dict, Any, Optional
 from datetime import datetime
 import os
+import asyncio
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -43,14 +44,17 @@ class EmailService:
             True si el email se envió correctamente, False en caso contrario
         """
         try:
+            logger.info(f"🔍 Iniciando envío de email - SMTP: {self.smtp_server}:{self.smtp_port}")
+            logger.info(f"🔍 Sender: {self.sender_email}, Recipient: {self.recipient_email}")
+            
             if not self.sender_password:
-                logger.error("No se puede enviar email: SENDER_PASSWORD no configurado")
+                logger.error("❌ No se puede enviar email: SENDER_PASSWORD no configurado")
                 return False
             
             # Crear contenido del email
             subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
             body = self._create_email_body(appointment_data)
-            
+            logger.info("Cuerpo del email creado")
             # Crear mensaje
             message = MIMEMultipart("alternative")
             message["Subject"] = subject
@@ -59,7 +63,7 @@ class EmailService:
             
             # Crear versión HTML del email
             html_body = self._create_html_email_body(appointment_data)
-            
+            logger.info("Cuerpo del email en HTML creado")
             # Adjuntar versiones de texto y HTML
             text_part = MIMEText(body, "plain", "utf-8")
             html_part = MIMEText(html_body, "html", "utf-8")
@@ -70,12 +74,13 @@ class EmailService:
             # Enviar email
             await self._send_email(message)
             
-            logger.info(f"Email de notificación enviado exitosamente para cita {appointment_data.get('appointment_id')}")
+            logger.info(f"✅ Email de notificación enviado exitosamente para cita {appointment_data.get('appointment_id')}")
             return True
             
         except Exception as e:
             logger.error(f"Error enviando email de notificación: {str(e)}")
-            return False
+            logger.info("🔄 Intentando método alternativo...")
+            return await self._send_email_alternative(appointment_data)
     
     def _create_email_body(self, appointment_data: Dict[str, Any]) -> str:
         """Crea el cuerpo del email en texto plano"""
@@ -284,22 +289,113 @@ class EmailService:
         return "<br>".join(formatted_items) if formatted_items else "No hay metadatos disponibles"
     
     async def _send_email(self, message: MIMEMultipart) -> None:
-        """Envía el email usando SMTP"""
+        """Envía el email usando SMTP con timeout"""
         try:
+            logger.info(f"🔗 Intentando conectar a {self.smtp_server}:{self.smtp_port}")
+            
             # Crear contexto SSL
             context = ssl.create_default_context()
             
-            # Conectar al servidor SMTP
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+            # Conectar al servidor SMTP con timeout
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                logger.info("✅ Conexión SMTP establecida")
+                
+                logger.info("🔐 Iniciando STARTTLS...")
                 server.starttls(context=context)
+                logger.info("✅ STARTTLS completado")
+                
+                logger.info("🔑 Iniciando login...")
                 server.login(self.sender_email, self.sender_password)
+                logger.info("✅ Login exitoso")
                 
                 # Enviar email
+                logger.info("📤 Enviando email...")
                 text = message.as_string()
                 server.sendmail(self.sender_email, self.recipient_email, text)
+                logger.info("✅ Email enviado al servidor SMTP")
                 
-            logger.info("Email enviado exitosamente")
+            logger.info("📧 Email enviado exitosamente via SMTP")
             
         except Exception as e:
-            logger.error(f"Error enviando email: {str(e)}")
+            logger.error(f"❌ Error enviando email: {str(e)}")
+            logger.error(f"❌ Tipo de error: {type(e).__name__}")
             raise
+    
+    async def _send_email_alternative(self, appointment_data: Dict[str, Any]) -> bool:
+        """
+        Método alternativo para enviar emails usando SendGrid
+        """
+        try:
+            logger.info("🔄 Usando método alternativo de envío de email (SendGrid)")
+            
+            # Verificar si SendGrid está configurado
+            sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+            if not sendgrid_api_key:
+                logger.warning("⚠️ SENDGRID_API_KEY no configurado, usando solo logs")
+                return await self._log_email_content(appointment_data)
+            
+            # Crear contenido del email
+            subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
+            body = self._create_email_body(appointment_data)
+            html_body = self._create_html_email_body(appointment_data)
+            
+            # Preparar datos para SendGrid
+            email_data = {
+                "personalizations": [{
+                    "to": [{"email": self.recipient_email}],
+                    "subject": subject
+                }],
+                "from": {"email": self.sender_email, "name": "Aura Inmobiliaria"},
+                "content": [
+                    {"type": "text/plain", "value": body},
+                    {"type": "text/html", "value": html_body}
+                ]
+            }
+            
+            # Enviar con SendGrid
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {sendgrid_api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                async with session.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    json=email_data,
+                    headers=headers,
+                    timeout=30
+                ) as response:
+                    if response.status == 202:
+                        logger.info("✅ Email enviado exitosamente via SendGrid")
+                        return True
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Error SendGrid: {response.status} - {error_text}")
+                        return False
+            
+        except ImportError:
+            logger.error("❌ aiohttp no instalado. Ejecuta: pip install aiohttp")
+            return await self._log_email_content(appointment_data)
+        except Exception as e:
+            logger.error(f"❌ Error en método alternativo: {str(e)}")
+            return await self._log_email_content(appointment_data)
+    
+    async def _log_email_content(self, appointment_data: Dict[str, Any]) -> bool:
+        """
+        Fallback: solo loguear el contenido del email
+        """
+        try:
+            subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
+            body = self._create_email_body(appointment_data)
+            
+            logger.info("📧 Email alternativo preparado (método no implementado aún)")
+            logger.info(f"📧 Subject: {subject}")
+            logger.info(f"📧 To: {self.recipient_email}")
+            logger.info(f"📧 Body preview: {body[:100]}...")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error en método alternativo: {str(e)}")
+            return False

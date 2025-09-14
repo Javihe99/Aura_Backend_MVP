@@ -683,9 +683,12 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
             # 7. FORMATEAR RESPUESTA (una sola vez)
             response_data = app.state.appointment_manager.format_appointment_for_response(created_appointment)
             
-            # 8. ENVIAR EMAIL DE NOTIFICACIÓN (síncrono)
-            logger.info("Enviando email de notificación...")
-            await app.state.email_service.send_appointment_notification(response_data)
+            # 8. ENVIAR EMAIL DE NOTIFICACIÓN (en background)
+            logger.info("Programando envío de email...")
+            background_tasks.add_task(
+                app.state.email_service.send_appointment_notification,
+                response_data
+            )
             
             logger.info(f"Appointment creado exitosamente: {created_appointment['id']}")
             
