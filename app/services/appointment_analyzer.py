@@ -4,9 +4,11 @@ Servicio para analizar el historial de conversaciones y extraer información rel
 
 import logging
 import json
+import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from app.services.ai_parse import get_llm_result
+from openai import AsyncOpenAI
+from app.config import Config
 from utils import LLMModel, LLMVersion
 
 logger = logging.getLogger(__name__)
@@ -15,9 +17,9 @@ class AppointmentAnalyzer:
     """Analizador de conversaciones para extraer información relevante para citas"""
     
     def __init__(self):
-        pass
+        self.async_client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
     
-    def analyze_conversation_history(self, conversation_history: List[Dict[str, Any]], user_ip: str = None) -> Dict[str, Any]:
+    async def analyze_conversation_history(self, conversation_history: List[Dict[str, Any]], user_ip: str = None) -> Dict[str, Any]:
         """
         Analiza el historial de conversación para extraer información relevante usando get_llm_result
         
@@ -33,11 +35,9 @@ class AppointmentAnalyzer:
             formatted_history = self._format_history_for_analysis(conversation_history)
             analysis_prompt = self._create_analysis_prompt(formatted_history, user_ip)
             
-            # Usar get_llm_result con GPT-4 nano
-            analysis_result = get_llm_result(
+            # Llamar al LLM de forma asíncrona
+            analysis_result = await self._get_async_llm_result(
                 prompt=analysis_prompt,
-                llm=LLMModel.OPENAI.value,
-                model=LLMVersion.OPENAI_4_1_NANO.value,
                 system_instruction=self._get_analysis_system_instruction()
             )
             
@@ -68,6 +68,34 @@ class AppointmentAnalyzer:
                     formatted_messages.append(f"ASISTENTE: {content}")
         
         return "\n".join(formatted_messages)
+    
+    async def _get_async_llm_result(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
+        """Obtiene respuesta del LLM de forma asíncrona"""
+        try:
+            # FIXED: Add "json" to the user message to comply with OpenAI requirements
+            full_prompt = f"""
+            Usuario: {prompt}
+
+            Por favor, responde en formato JSON válido.
+            """
+
+            response = await self.async_client.chat.completions.create(
+                model=LLMVersion.OPENAI_4_1_NANO.value,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": full_prompt}
+                ],
+                temperature=0,
+                response_format={"type": "json_object"}
+            )
+
+            result = response.choices[0].message.content
+            logging.info(f"OpenAI Response: {result}")
+            return json.loads(result)
+            
+        except Exception as e:
+            logging.error(f"Error en llamada asíncrona a OpenAI: {str(e)}")
+            raise
     
     def _get_analysis_system_instruction(self) -> str:
         """Retorna las instrucciones del sistema para el análisis de conversaciones"""
