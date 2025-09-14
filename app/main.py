@@ -478,16 +478,17 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             )
 
         # Aplicar filtros de calidad
-        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=request.limit * 2)
+        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=int(request.limit * 2))
 
-        records = df.head(request.limit).to_dict(orient='records')
+        records = df.head(int(request.limit)).to_dict(orient='records')
 
         # Generar resumen
         search_description = f"Búsqueda en radio de {request.metro}m desde coordenadas ({request.lat}, {request.lng})"
         summary = await app.state.summarizer.generate_summary(
             records,
-            {"lat": request.lat, "lng": request.lng, "radius": request.metro},
-            search_description
+            first_top_properties=20,
+            conversation_context=search_description,
+            total_properties=len(df)
         )
 
         # Guardar propiedades en la base de datos (por separado)
