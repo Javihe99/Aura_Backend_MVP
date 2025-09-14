@@ -87,7 +87,7 @@ def _get_nominatim_area(query: str) -> Optional[Polygon]:
     gdf['area'] = gdf_projected.geometry.area
     gdf = gdf.sort_values(['place_rank', 'area'], ascending=False).reset_index(drop=True).iloc[0]
     if gdf['area'] > 10**-6 : # Arguelles está en torno a 2.5e-6
-        raise Exception("Area too small")
+        raise Exception("Area too small"+str(gdf['area']))
     geom = gdf.loc[0, 'geometry']
 
     return geom

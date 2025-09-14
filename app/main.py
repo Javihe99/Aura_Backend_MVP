@@ -38,6 +38,33 @@ DEFAULT_CITY = 'Madrid, España'
 
 
 # ========== HELPER FUNCTIONS ==========
+def generate_search_suggestions(prompt_result: dict) -> str:
+    """Genera sugerencias para el usuario cuando no se encuentran propiedades"""
+    suggestions = []
+    
+    # Sugerencias basadas en los parámetros de búsqueda
+    if prompt_result.get('maxPrice'):
+        suggestions.append(f"• Aumentar el presupuesto máximo (actual: {prompt_result['maxPrice']:,}€)")
+    
+    if prompt_result.get('minRooms'):
+        suggestions.append(f"• Reducir el número mínimo de habitaciones (actual: {prompt_result['minRooms']})")
+    
+    if prompt_result.get('minSize'):
+        suggestions.append(f"• Reducir los metros cuadrados mínimos (actual: {prompt_result['minSize']}m²)")
+    
+    if prompt_result.get('locationName'):
+        suggestions.append(f"• Ampliar la zona de búsqueda alrededor de {prompt_result['locationName']}")
+    
+    # Sugerencias generales
+    suggestions.extend([
+        "• Considerar propiedades en zonas cercanas",
+        "• Revisar si hay propiedades similares con características ligeramente diferentes",
+        "• Contactar con un agente inmobiliario para búsquedas personalizadas"
+    ])
+    
+    return "Te sugiero:\n" + "\n".join(suggestions[:4])  # Limitar a 4 sugerencias
+
+
 def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame,dict):
     """Obtiene propiedades de Idealista usando los parámetros proporcionados"""
     sort_parse = {
@@ -52,9 +79,27 @@ def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame,dict):
     status, records = property.search_properties_by_coordinates(**prompt_result)
     if status is False:
         raise ValueError(records)
+    
+    # Verificar si hay propiedades encontradas
+    if not records.get('elementList') or len(records['elementList']) == 0:
+        logger.warning("No se encontraron propiedades con los parámetros especificados")
+        # Crear DataFrame vacío con las columnas esperadas
+        empty_df = pd.DataFrame(columns=['propertyCode', 'labels', 'priceByArea'])
+        empty_df = empty_df.replace({np.nan: None})
+        del records['elementList']
+        return empty_df, records
+    
     df = pd.json_normalize(records['elementList'])
-    df[['additional_info_tag', 'additional_info_name']] = df['labels'].apply(
-        lambda x: pd.Series([x[0]['name'], x[0]['text']]) if isinstance(x, list) else pd.Series([None, None]))
+    
+    # Verificar si la columna 'labels' existe antes de procesarla
+    if 'labels' in df.columns:
+        df[['additional_info_tag', 'additional_info_name']] = df['labels'].apply(
+            lambda x: pd.Series([x[0]['name'], x[0]['text']]) if isinstance(x, list) and len(x) > 0 else pd.Series([None, None]))
+    else:
+        # Si no hay columna labels, crear columnas vacías
+        df['additional_info_tag'] = None
+        df['additional_info_name'] = None
+    
     df['status_sort'] = np.where(df['additional_info_name'].isna(), 0,
                                  df['additional_info_name'].map(sort_parse).fillna(1)).astype(int)
     df = df.sort_values(by=['status_sort', 'priceByArea'], ascending=True)
@@ -314,9 +359,30 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Obtener propiedades
         df_raw, records_raw = get_idealista_properties(prompt_result)
 
+        # Verificar si se encontraron propiedades
+        if df_raw.empty:
+            # Generar mensaje de sugerencias para el usuario
+            suggestions = generate_search_suggestions(prompt_result)
+            no_properties_message = f"No se encontraron propiedades con los criterios especificados. {suggestions}"
+            
+            # Guardar mensaje del asistente
+            background_tasks.add_task(
+                app.state.memory_manager.save_message,
+                session_id, "assistant", no_properties_message,
+                {"properties_found": 0, "search_params": prompt_result,
+                 "property_list": [], "llm_summary": no_properties_message}, request.ip_address
+            )
+            
+            return ChatResponse(
+                llm_summary=no_properties_message,
+                properties=[],
+                total_found=0,
+                session_id=session_id,
+                search_params=prompt_result
+            )
+
         # Aplicar filtros de calidad
-        if not df_raw.empty:
-            df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=request.limit * 3)
+        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=request.limit * 3)
 
         # Limitar resultados y convertir a lista de diccionarios
         records = df.head(request.limit).to_dict(orient='records')
@@ -387,11 +453,32 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
         prompt_result_final = {'shape': multipolygon_str}
 
         # Obtener propiedades
-        df = get_idealista_properties(prompt_result_final)
+        df_raw, records_raw = get_idealista_properties(prompt_result_final)
+
+        # Verificar si se encontraron propiedades
+        if df_raw.empty:
+            # Generar mensaje de sugerencias para el usuario
+            suggestions = f"• Ampliar el radio de búsqueda (actual: {request.metro}m)\n• Considerar coordenadas cercanas\n• Revisar si hay propiedades en zonas adyacentes"
+            no_properties_message = f"No se encontraron propiedades en el radio de {request.metro}m desde las coordenadas especificadas. {suggestions}"
+            
+            # Guardar mensaje del sistema
+            background_tasks.add_task(
+                app.state.memory_manager.save_message,
+                session_id, "system", no_properties_message,
+                {"lat": request.lat, "lng": request.lng, "radius": request.metro, 
+                 "properties_found": 0, "property_list": []}, request.ip_address
+            )
+            
+            return ChatResponse(
+                llm_summary=no_properties_message,
+                properties=[],
+                total_found=0,
+                session_id=session_id,
+                search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
+            )
 
         # Aplicar filtros de calidad
-        if not df.empty:
-            df = app.state.quality_filter.filter_and_rank_properties(df, top_n=request.limit * 2)
+        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=request.limit * 2)
 
         records = df.head(request.limit).to_dict(orient='records')
 
