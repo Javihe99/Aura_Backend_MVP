@@ -356,8 +356,10 @@ class EmailService:
             html_body = self._create_html_email_body(appointment_data)
             
             # Preparar datos para Resend
+            # Usar dominio verificado de Resend en lugar de gmail.com
+            from_email = "onboarding@resend.dev"  # Dominio verificado por defecto de Resend
             email_data = {
-                "from": f"Aura Inmobiliaria <{self.sender_email}>",
+                "from": f"Aura Inmobiliaria <{from_email}>",
                 "to": [self.recipient_email],
                 "subject": subject,
                 "text": body,
