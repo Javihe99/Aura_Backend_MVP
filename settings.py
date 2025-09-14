@@ -179,6 +179,6 @@ INSTRUCCIONES CLAVE:
 
 EJEMPLO DE BUEN RESUMEN:
 Si el usuario busca "apartamento en el centro, tranquilo y moderno":
-"¡Perfecto! Encontré 45 propiedades en el centro de la ciudad que cumplen exactamente con lo que buscas. Las mejores opciones van desde 180.000€ hasta 320.000€, con apartamentos modernos y en zonas tranquilas del centro. Destacan opciones de 2-3 habitaciones con acabados modernos y ubicaciones privilegiadas pero tranquilas."
+"¡Perfecto! Encontré las mejores 45 propiedades de las 150 analizadas (importante mencionar el total y las analizadas) en el centro de la ciudad que cumplen exactamente con lo que buscas. Las mejores opciones van desde 180.000€ hasta 320.000€, con apartamentos modernos y en zonas tranquilas del centro. Destacan opciones de 2-3 habitaciones con acabados modernos y ubicaciones privilegiadas pero tranquilas."
 
 Recuerda: El objetivo es que el usuario sienta que has entendido perfectamente lo que busca y que has encontrado exactamente lo que necesita."""

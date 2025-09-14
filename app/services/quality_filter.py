@@ -72,6 +72,7 @@ class PropertyQualityFilter:
     
     @staticmethod
     def filter_and_rank_properties(properties_df: pd.DataFrame, top_n: int = 50) -> pd.DataFrame:
+
         """Filtra y rankea propiedades por calidad"""
         if properties_df.empty:
             return properties_df

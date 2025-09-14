@@ -13,6 +13,7 @@ class PropertySummarizer:
     @staticmethod
     async def generate_summary(properties: List[Dict], first_top_properties: int = 20,
                                conversation_context: str = "", total_properties: int = 0) -> str:
+
         """Genera un resumen de las propiedades encontradas"""
         if not properties:
             return "No se encontraron propiedades que cumplan con los criterios especificados."
