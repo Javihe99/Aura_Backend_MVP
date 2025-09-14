@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Dict, Any
 
 
@@ -41,5 +41,47 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Estado del servicio")
     timestamp: str = Field(..., description="Timestamp del check")
     supabase_connected: bool = Field(..., description="Estado de conexión con Supabase")
+
+
+class AppointmentRequest(BaseModel):
+    """Modelo de solicitud de cita"""
+    session_id: str = Field(..., description="ID de sesión del usuario")
+    appointment_time: str = Field(..., description="Fecha y hora de la cita (ISO format)")
+    email: Optional[str] = Field(None, description="Email del cliente")
+    name: str = Field(..., description="Nombre del cliente")
+    phone: Optional[str] = Field(None, description="Teléfono del cliente")
+    property_id: Optional[str] = Field(None, description="ID de propiedad específica")
+    property_url: Optional[str] = Field(None, description="URL de propiedad específica")
+    
+    @validator('phone', always=True)
+    def validate_contact_info(cls, v, values):
+        """Valida que al menos email o teléfono esté presente"""
+        email = values.get('email')
+        phone = v
+        
+        # Si no hay email ni teléfono, lanzar error
+        if not email and not phone:
+            raise ValueError('Al menos uno de email o teléfono debe ser proporcionado para contactar al cliente')
+        
+        return v
+
+
+class AppointmentResponse(BaseModel):
+    """Modelo de respuesta de cita"""
+    appointment_id: str = Field(..., description="ID de la cita creada")
+    session_id: str = Field(..., description="ID de sesión")
+    appointment_time: str = Field(..., description="Fecha y hora de la cita")
+    email: Optional[str] = Field(..., description="Email del cliente")
+    name: str = Field(..., description="Nombre del cliente")
+    phone: Optional[str] = Field(..., description="Teléfono del cliente")
+    property_id: Optional[str] = Field(None, description="ID de propiedad específica")
+    property_url: Optional[str] = Field(None, description="URL de propiedad específica")
+    user_location: Optional[str] = Field(None, description="Ubicación detectada por IP")
+    budget_min: Optional[int] = Field(None, description="Presupuesto mínimo detectado")
+    budget_max: Optional[int] = Field(None, description="Presupuesto máximo detectado")
+    financing: bool = Field(False, description="Necesita financiación")
+    preferences_metadata: Optional[Dict[str, Any]] = Field(None, description="Metadatos de preferencias")
+    conversation_summary: Optional[str] = Field(None, description="Resumen de la conversación")
+    created_at: str = Field(..., description="Fecha de creación")
 
 

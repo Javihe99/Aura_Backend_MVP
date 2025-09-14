@@ -1,5 +1,7 @@
 import logging
 from typing import List, Dict
+
+import settings
 from app.services.ai_parse import get_llm_result
 
 logger = logging.getLogger(__name__)
@@ -10,7 +12,7 @@ class PropertySummarizer:
 
     @staticmethod
     async def generate_summary(properties: List[Dict], first_top_properties: int = 20,
-                               conversation_context: str = "") -> str:
+                               conversation_context: str = "", total_properties: int = 0) -> str:
         """Genera un resumen de las propiedades encontradas"""
         if not properties:
             return "No se encontraron propiedades que cumplan con los criterios especificados."
@@ -40,7 +42,7 @@ class PropertySummarizer:
             Contexto de conversación:
             {conversation_context}
             
-            Se encontraron {len(properties)} propiedades. Las {first_top_properties} más relevantes son:
+            Se encontraron {len(properties)} propiedades del total de {total_properties}. Las {first_top_properties} más relevantes son:
             {'. '.join(properties_info)}
             
             Genera un resumen conciso (máximo 3 líneas) destacando:
@@ -50,8 +52,7 @@ class PropertySummarizer:
             
             Responde en formato JSON con la clave "summary".
             """
-
-            result = get_llm_result(prompt)
+            result = get_llm_result(prompt, system_instruction=settings.SUMMARY_SYSTEM_INSTRUCTIONS)
             return result.get('summary', 'Se encontraron propiedades interesantes según tus criterios.')
 
         except Exception as e:

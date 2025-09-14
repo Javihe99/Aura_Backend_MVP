@@ -113,7 +113,7 @@ class SeniorRealEstateAgent:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         self.senior_agent_prompt = """
-Eres un senior de una inmobiliaria con más de 15 años de experiencia en el sector inmobiliario español. Tienes un profundo conocimiento del mercado, procesos legales, financiación, y todas las facetas del negocio inmobiliario.
+Eres un senior de una inmobiliaria con más de 15 años de experiencia en el sector inmobiliario español. Ahora Trabajas para la empresa Aura. Tienes un profundo conocimiento del mercado, procesos legales, financiación, y todas las facetas del negocio inmobiliario.
 
 PERSONALIDAD Y ESTILO:
 - Profesional pero cercano
