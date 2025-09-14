@@ -389,52 +389,11 @@ class EmailService:
             
         except ImportError:
             logger.error("❌ aiohttp no instalado. Ejecuta: pip install aiohttp")
-            return await self._try_resend_official(appointment_data)
+            return await self._log_email_content(appointment_data)
         except Exception as e:
             logger.error(f"❌ Error en método alternativo: {str(e)}")
-            return await self._try_resend_official(appointment_data)
+            return await self._log_email_content(appointment_data)
     
-    async def _try_resend_official(self, appointment_data: Dict[str, Any]) -> bool:
-        """
-        Intenta usar la librería oficial de Resend
-        """
-        try:
-            logger.info("🔄 Intentando con librería oficial de Resend...")
-            
-            # Verificar si Resend está configurado
-            resend_api_key = os.getenv("RESEND_API_KEY")
-            if not resend_api_key:
-                logger.warning("⚠️ RESEND_API_KEY no configurado, usando solo logs")
-                return await self._log_email_content(appointment_data)
-            
-            # Crear contenido del email
-            subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
-            body = self._create_email_body(appointment_data)
-            html_body = self._create_html_email_body(appointment_data)
-            
-            # Usar librería oficial de Resend
-            import resend
-            
-            resend.api_key = resend_api_key
-            
-            params = {
-                "from": f"Aura Inmobiliaria <{self.sender_email}>",
-                "to": [self.recipient_email],
-                "subject": subject,
-                "text": body,
-                "html": html_body
-            }
-            
-            email = resend.Emails.send(params)
-            logger.info(f"✅ Email enviado exitosamente via Resend (oficial) - ID: {email.get('id')}")
-            return True
-            
-        except ImportError:
-            logger.error("❌ resend no instalado. Ejecuta: pip install resend")
-            return await self._log_email_content(appointment_data)
-        except Exception as e:
-            logger.error(f"❌ Error con Resend oficial: {str(e)}")
-            return await self._log_email_content(appointment_data)
     
     async def _log_email_content(self, appointment_data: Dict[str, Any]) -> bool:
         """
