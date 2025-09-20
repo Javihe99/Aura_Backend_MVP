@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 
 class ChatRequest(BaseModel):
@@ -83,5 +83,30 @@ class AppointmentResponse(BaseModel):
     preferences_metadata: Optional[Dict[str, Any]] = Field(None, description="Metadatos de preferencias")
     conversation_summary: Optional[str] = Field(None, description="Resumen de la conversación")
     created_at: str = Field(..., description="Fecha de creación")
+
+
+class PropertySearchRequest(BaseModel):
+    """Modelo de solicitud de búsqueda de propiedades por IDs"""
+    property_ids: Union[str, List[str]] = Field(..., description="ID de propiedad o lista de IDs a buscar")
+    
+    @validator('property_ids', pre=True)
+    def validate_property_ids(cls, v):
+        """Valida y normaliza los property_ids"""
+        if isinstance(v, str):
+            # Si es un string, convertir a lista
+            return [v.strip()]
+        elif isinstance(v, list):
+            # Si es una lista, limpiar y filtrar elementos vacíos
+            return [str(item).strip() for item in v if str(item).strip()]
+        else:
+            raise ValueError('property_ids debe ser un string o una lista de strings')
+
+
+class PropertySearchResponse(BaseModel):
+    """Modelo de respuesta de búsqueda de propiedades"""
+    found_properties: List[Dict[str, Any]] = Field(..., description="Propiedades encontradas")
+    total_found: int = Field(..., description="Total de propiedades encontradas")
+    requested_ids: List[str] = Field(..., description="IDs solicitados")
+    not_found_ids: List[str] = Field(..., description="IDs no encontrados")
 
 

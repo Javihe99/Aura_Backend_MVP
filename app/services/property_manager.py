@@ -265,3 +265,58 @@ class PropertyManager:
         except Exception as e:
             logger.error(f"Error getting property by code: {e}")
             return None
+    
+    async def get_properties_by_codes(self, property_codes: List[str]) -> Dict[str, List[Dict]]:
+        """
+        Obtiene propiedades por una lista de property codes.
+        Optimizado sin pandas para máxima eficiencia en búsquedas simples.
+        
+        Args:
+            property_codes: Lista de códigos de propiedad a buscar
+            
+        Returns:
+            Dict con 'found_properties' (lista de propiedades encontradas) y 
+            'not_found_codes' (lista de códigos no encontrados)
+        """
+        if not self.supabase or not property_codes:
+            return {
+                'found_properties': [],
+                'not_found_codes': property_codes if property_codes else []
+            }
+            
+        try:
+            # Limpiar y validar los códigos (operación simple y rápida)
+            clean_codes = [str(code).strip() for code in property_codes if str(code).strip()]
+            
+            if not clean_codes:
+                return {
+                    'found_properties': [],
+                    'not_found_codes': property_codes
+                }
+            
+            logger.info(f"Searching for {len(clean_codes)} property codes: {clean_codes[:5]}{'...' if len(clean_codes) > 5 else ''}")
+            
+            # Búsqueda directa en Supabase (sin overhead de pandas)
+            response = self.supabase.table('properties')\
+                .select('*')\
+                .in_('propertycode', clean_codes)\
+                .execute()
+            
+            # Procesamiento simple con sets para eficiencia O(1) lookup
+            found_properties = response.data if response.data else []
+            found_codes = {prop['propertycode'] for prop in found_properties}
+            not_found_codes = [code for code in clean_codes if code not in found_codes]
+            
+            logger.info(f"Found {len(found_properties)} properties, {len(not_found_codes)} not found")
+            
+            return {
+                'found_properties': found_properties,
+                'not_found_codes': not_found_codes
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting properties by codes: {e}")
+            return {
+                'found_properties': [],
+                'not_found_codes': property_codes
+            }

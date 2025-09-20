@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models.schemas import (
     ChatRequest, MapSearchRequest, ChatResponse,
     ConversationHistoryResponse, HealthResponse,
-    AppointmentRequest, AppointmentResponse
+    AppointmentRequest, AppointmentResponse,
+    PropertySearchRequest, PropertySearchResponse
 )
 from app.services.ai_parse import get_llm_result, validate_and_correct_location
 from app.services.concurrency_manager import RequestLimiter, AsyncTaskManager
@@ -167,6 +168,7 @@ app = FastAPI(
     - `POST /chat`: Chat inteligente con clasificación de intenciones
     - `POST /maps`: Búsqueda por coordenadas geográficas
     - `POST /appointment`: Crear cita inmobiliaria con análisis IA
+    - `POST /properties/search`: Buscar propiedades por IDs específicos
     - `GET /conversation/{session_id}`: Obtener historial de conversación
     - `GET /appointments/{session_id}`: Obtener citas de una sesión
     - `GET /appointment/{appointment_id}`: Obtener cita específica
@@ -205,6 +207,13 @@ app = FastAPI(
       "phone": "+34123456789",
       "property_id": "12345",
       "property_url": "https://www.idealista.com/inmueble/12345",
+    }
+    ```
+    
+    **Buscar propiedades por IDs:**
+    ```json
+    {
+      "property_ids": ["12345", "67890", "11111"]
     }
     ```
     
@@ -247,7 +256,8 @@ async def root():
             "Filtros de calidad",
             "Gestión de concurrencia",
             "Sistema de citas con análisis IA",
-            "Notificaciones por email"
+            "Notificaciones por email",
+            "Búsqueda de propiedades por IDs"
         ]
     }
 
@@ -769,6 +779,71 @@ async def get_recent_appointments(limit: int = 10):
     }
 
 
+@app.post("/properties/search", response_model=PropertySearchResponse, tags=["Properties"])
+async def search_properties_by_ids(request: PropertySearchRequest):
+    """
+    🔍 Busca propiedades por sus IDs (property codes).
+    
+    Este endpoint permite buscar propiedades específicas en la base de datos
+    usando sus códigos de propiedad. Acepta tanto un string individual como
+    una lista de IDs.
+    
+    ### 📋 Parámetros:
+    - `property_ids`: String o lista de strings con los códigos de propiedad
+    
+    ### 🔍 Funcionamiento:
+    1. **Normaliza la entrada**: Convierte strings individuales a listas
+    2. **Busca en Supabase**: Consulta la tabla 'properties' usando el campo 'propertycode'
+    3. **Devuelve resultados**: Propiedades encontradas y códigos no encontrados
+    
+    ### 📝 Ejemplos de uso:
+    
+    **Búsqueda individual:**
+    ```json
+    {
+      "property_ids": "12345"
+    }
+    ```
+    
+    **Búsqueda múltiple:**
+    ```json
+    {
+      "property_ids": ["12345", "67890", "11111"]
+    }
+    ```
+    
+    ### 📊 Respuesta:
+    - `found_properties`: Lista de propiedades encontradas
+    - `total_found`: Número total de propiedades encontradas
+    - `requested_ids`: IDs que se solicitaron
+    - `not_found_ids`: IDs que no se encontraron en la base de datos
+    """
+    try:
+        # Obtener la lista de property IDs del request
+        property_ids = request.property_ids
+        
+        logger.info(f"Searching for properties with IDs: {property_ids}")
+        
+        # Buscar propiedades usando el PropertyManager
+        search_result = await app.state.property_manager.get_properties_by_codes(property_ids)
+        
+        # Preparar respuesta
+        response = PropertySearchResponse(
+            found_properties=search_result['found_properties'],
+            total_found=len(search_result['found_properties']),
+            requested_ids=property_ids,
+            not_found_ids=search_result['not_found_codes']
+        )
+        
+        logger.info(f"Property search completed: {response.total_found} found, {len(response.not_found_ids)} not found")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in search_properties_by_ids: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
 @app.get("/stats", tags=["General"])
 async def get_service_stats():
     """📊 Obtiene estadísticas del servicio"""
@@ -827,4 +902,4 @@ async def new_maps_legacy(request: dict):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8001, log_level="info")
