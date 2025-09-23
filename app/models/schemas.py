@@ -52,6 +52,9 @@ class AppointmentRequest(BaseModel):
     phone: Optional[str] = Field(None, description="Teléfono del cliente")
     property_id: Optional[str] = Field(None, description="ID de propiedad específica")
     property_url: Optional[str] = Field(None, description="URL de propiedad específica")
+    need_finance: Optional[str] = Field(None, description="Necesidad de financiación del cliente")
+    time_searching: Optional[str] = Field(None, description="Tiempo que lleva buscando el piso")
+    utms: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Parámetros UTM de tracking")
     
     @validator('phone', always=True)
     def validate_contact_info(cls, v, values):
@@ -80,6 +83,9 @@ class AppointmentResponse(BaseModel):
     budget_min: Optional[int] = Field(None, description="Presupuesto mínimo detectado")
     budget_max: Optional[int] = Field(None, description="Presupuesto máximo detectado")
     financing: bool = Field(False, description="Necesita financiación")
+    need_finance: Optional[str] = Field(None, description="Necesidad de financiación del cliente")
+    time_searching: Optional[str] = Field(None, description="Tiempo que lleva buscando el piso")
+    utms: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Parámetros UTM de tracking")
     preferences_metadata: Optional[Dict[str, Any]] = Field(None, description="Metadatos de preferencias")
     conversation_summary: Optional[str] = Field(None, description="Resumen de la conversación")
     created_at: str = Field(..., description="Fecha de creación")

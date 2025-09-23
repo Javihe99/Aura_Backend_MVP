@@ -112,12 +112,16 @@ class EmailService:
 • URL de Propiedad: {appointment_data.get('property_url', 'No especificada')}
 
 💰 INFORMACIÓN FINANCIERA:
-• Presupuesto Mínimo: {appointment_data.get('budget_min', 'No especificado')}€
-• Presupuesto Máximo: {appointment_data.get('budget_max', 'No especificado')}€
-• Necesita Financiación: {'Sí' if appointment_data.get('financing', False) else 'No'}
+• Presupuesto Mínimo:  {appointment_data.get('budget_min', 'No especificado')} €
+• Presupuesto Máximo:  {appointment_data.get('budget_max', 'No especificado')} €
+• Financiación:  {appointment_data.get('need_finance', 'No especificado')}
+• Tiempo Buscando:  {appointment_data.get('time_searching', 'No especificado')}
 
 📍 UBICACIÓN:
 • Ubicación del usuario Detectada: {appointment_data.get('user_location', 'No detectada')}
+
+📊 PARÁMETROS UTM:
+{self._format_utm_parameters(appointment_data.get('utms', {}))}
 
 📝 RESUMEN DE LA CONVERSACIÓN:
 {appointment_data.get('conversation_summary', 'No disponible')}
@@ -221,8 +225,12 @@ class EmailService:
                     <span class="value">{appointment_data.get('budget_max', 'No especificado')}€</span>
                 </div>
                 <div class="info-row">
-                    <span class="label">Necesita Financiación:</span>
-                    <span class="value">{'Sí' if appointment_data.get('financing', False) else 'No'}</span>
+                    <span class="label">Financiación:</span>
+                    <span class="value">{appointment_data.get('need_finance', 'No especificado')}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Tiempo Buscando:</span>
+                    <span class="value">{appointment_data.get('time_searching', 'No especificado')}</span>
                 </div>
             </div>
             
@@ -231,6 +239,13 @@ class EmailService:
                 <div class="info-row">
                     <span class="label">Ubicación Detectada:</span>
                     <span class="value">{appointment_data.get('user_location', 'No detectada')}</span>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h3>📊 Parámetros UTM</h3>
+                <div class="highlight">
+                    {self._format_utm_parameters_html(appointment_data.get('utms', {}))}
                 </div>
             </div>
             
@@ -287,6 +302,28 @@ class EmailService:
                 formatted_items.append(f"<strong>{key}:</strong> {value}")
         
         return "<br>".join(formatted_items) if formatted_items else "No hay metadatos disponibles"
+    
+    def _format_utm_parameters(self, utms: Dict[str, Any]) -> str:
+        """Formatea los parámetros UTM para texto plano"""
+        if not utms:
+            return "No hay parámetros UTM disponibles"
+        
+        formatted_items = []
+        for key, value in utms.items():
+            formatted_items.append(f"• {key}: {value}")
+        
+        return "\n".join(formatted_items) if formatted_items else "No hay parámetros UTM disponibles"
+    
+    def _format_utm_parameters_html(self, utms: Dict[str, Any]) -> str:
+        """Formatea los parámetros UTM para HTML"""
+        if not utms:
+            return "No hay parámetros UTM disponibles"
+        
+        formatted_items = []
+        for key, value in utms.items():
+            formatted_items.append(f"<strong>{key}:</strong> {value}")
+        
+        return "<br>".join(formatted_items) if formatted_items else "No hay parámetros UTM disponibles"
     
     async def _send_email(self, message: MIMEMultipart) -> None:
         """Envía el email usando SMTP con timeout"""

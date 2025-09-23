@@ -207,6 +207,13 @@ app = FastAPI(
       "phone": "+34123456789",
       "property_id": "12345",
       "property_url": "https://www.idealista.com/inmueble/12345",
+      "need_finance": "Sí, necesito financiación",
+      "time_searching": "6 meses",
+      "utms": {
+        "utm_source": "google",
+        "utm_medium": "cpc",
+        "utm_campaign": "inmobiliaria"
+      }
     }
     ```
     
@@ -605,6 +612,9 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
     - `name`: Nombre del cliente
     - `property_id`: ID de propiedad específica (opcional)
     - `property_url`: URL de la propiedad (opcional)
+    - `need_finance`: Necesidad de financiación del cliente (opcional)
+    - `time_searching`: Tiempo que lleva buscando el piso (opcional)
+    - `utms`: Parámetros UTM de tracking (opcional, dict)
     
     ### 🔍 Información extraída automáticamente:
     - Presupuesto mínimo y máximo
@@ -667,7 +677,9 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
                 "user_location": analysis_result.get("location"),
                 "budget_min": analysis_result.get("budget_min"),
                 "budget_max": analysis_result.get("budget_max"),
-                "financing": analysis_result.get("financing", False),
+                "need_finance": request.need_finance,
+                "time_searching": request.time_searching,
+                "utms": request.utms or {},
                 "preferences_metadata": {
                     "property_type": analysis_result.get("property_type"),
                     "bedrooms": analysis_result.get("bedrooms"),

@@ -174,7 +174,6 @@ FORMATO DE RESPUESTA (JSON):
     "budget_max": null o número entero,
     "location": "ubicación mencionada o inferida",
     "location_description": "descripción de la zona (segura, tranquila, etc.)",
-    "financing": true/false,
     "property_type": "tipo de propiedad mencionado",
     "bedrooms": null o número,
     "bathrooms": null o número,
@@ -226,7 +225,6 @@ Analiza este historial de conversación y extrae la información relevante segú
                 "budget_max": self._safe_int(analysis_data.get("budget_max")),
                 "location": self._safe_str(analysis_data.get("location")),
                 "location_description": self._safe_str(analysis_data.get("location_description")),
-                "financing": bool(analysis_data.get("financing", False)),
                 "property_type": self._safe_str(analysis_data.get("property_type")),
                 "bedrooms": self._safe_int(analysis_data.get("bedrooms")),
                 "bathrooms": self._safe_int(analysis_data.get("bathrooms")),
@@ -291,7 +289,6 @@ Analiza este historial de conversación y extrae la información relevante segú
             "budget_max": None,
             "location": None,
             "location_description": None,
-            "financing": False,
             "property_type": None,
             "bedrooms": None,
             "bathrooms": None,
@@ -399,10 +396,6 @@ Analiza este historial de conversación y extrae la información relevante segú
             if analysis_data.get('quality_preferences'):
                 quality = ', '.join(analysis_data['quality_preferences'])
                 summary_parts.append(f"⭐ Preferencias de calidad: {quality}")
-            
-            # Financiación
-            if analysis_data.get('financing'):
-                summary_parts.append("🏦 Necesita financiación/hipoteca")
             
             # Contexto personal
             if analysis_data.get('personal_context'):

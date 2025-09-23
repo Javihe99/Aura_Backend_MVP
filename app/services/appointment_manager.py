@@ -48,7 +48,9 @@ class AppointmentManager:
                 "user_location": appointment_data.get("user_location"),
                 "budget_min": appointment_data.get("budget_min"),
                 "budget_max": appointment_data.get("budget_max"),
-                "financing": appointment_data.get("financing", False),
+                "need_finance": appointment_data.get("need_finance"),
+                "time_searching": appointment_data.get("time_searching"),
+                "utms": appointment_data.get("utms", {}),
                 "preferences_metadata": appointment_data.get("preferences_metadata"),
                 "conversation_summary": appointment_data.get("conversation_summary")
             }
@@ -236,7 +238,9 @@ class AppointmentManager:
             "user_location": appointment.get("user_location"),
             "budget_min": appointment.get("budget_min"),
             "budget_max": appointment.get("budget_max"),
-            "financing": appointment.get("financing", False),
+            "need_finance": appointment.get("need_finance"),
+            "time_searching": appointment.get("time_searching"),
+            "utms": appointment.get("utms", {}),
             "preferences_metadata": appointment.get("preferences_metadata"),
             "conversation_summary": appointment.get("conversation_summary"),
             "created_at": appointment.get("created_at")
