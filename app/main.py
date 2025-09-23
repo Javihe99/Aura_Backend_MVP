@@ -90,7 +90,7 @@ def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame,dict):
         del records['elementList']
         return empty_df, records
     
-    df = pd.json_normalize(records['elementList'])
+    df = pd.DataFrame(records['elementList'])
     
     # Verificar si la columna 'labels' existe antes de procesarla
     if 'labels' in df.columns:
