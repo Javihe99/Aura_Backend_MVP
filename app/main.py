@@ -368,7 +368,11 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
 
         # Obtener propiedades
         df_raw, records_raw = get_idealista_properties(prompt_result)
-
+        # Guardar propiedades en la base de datos (por separado)
+        background_tasks.add_task(
+            app.state.property_manager.save_properties,
+            df_raw.to_dict('records')
+        )
         # Verificar si se encontraron propiedades
         if df_raw.empty:
             # Generar mensaje de sugerencias para el usuario
@@ -403,11 +407,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Valor un pesado eliminar 'shape' del prompt_result antes de guardarlo
         del prompt_result['shape']
 
-        # Guardar propiedades en la base de datos (por separado)
-        background_tasks.add_task(
-            app.state.property_manager.save_properties,
-            records
-        )
+
 
         # Guardar conversación del asistente (por separado)
         # Extraer property_list usando pandas (más eficiente)
@@ -501,14 +501,7 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             total_properties=len(df)
         )
 
-        # Guardar propiedades en la base de datos (por separado)
-        background_tasks.add_task(
-            app.state.property_manager.save_properties,
-            records
-        )
-
         # Guardar conversación en historial (por separado)
-        # Extraer property_list usando pandas (más eficiente)
         property_list = df['propertyCode'].tolist() if not df.empty else []
         
         background_tasks.add_task(

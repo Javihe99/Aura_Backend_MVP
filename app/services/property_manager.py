@@ -15,20 +15,16 @@ class PropertyManager:
     def __init__(self):
         self.supabase = self._init_supabase()
         
-    def _init_supabase(self) -> Optional[Client]:
+    def _init_supabase(self) -> Client:
         """Inicializa la conexión con Supabase"""
-        try:
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        
+        if not supabase_url or not supabase_key:
+            logger.error("Supabase credentials not found in environment variables")
+            raise Exception("Supabase credentials not configured")
             
-            if not supabase_url or not supabase_key:
-                logger.warning("Supabase credentials not found. Property storage will be disabled.")
-                return None
-                
-            return create_client(supabase_url, supabase_key)
-        except Exception as e:
-            logger.error(f"Error initializing Supabase: {e}")
-            return None
+        return create_client(supabase_url, supabase_key)
     
     def _extract_nested_data(self, prop: Dict, prefix: str) -> Dict:
         """Extrae datos anidados con un prefijo específico"""
@@ -66,6 +62,7 @@ class PropertyManager:
             'has360': 'has360',
             'hasStaging': 'hasstaging',
             'topNewDevelopment': 'topnewdevelopment',
+            'newDevelopmentHighlight': 'newdevelopmenthighlight',
             'topPlus': 'topplus',
             'preferenceHighlight': 'preferencehighlight',
             'topHighlight': 'tophighlight',
@@ -76,7 +73,8 @@ class PropertyManager:
             'priceDropPercentage': 'pricedroppercentage',
             'newDevelopmentFinished': 'newdevelopmentfinished',
             'highlightComment': 'highlightcomment',
-            'externalReference': 'externalreference'
+            'externalReference': 'externalreference',
+            'savedAd': 'savedad'
         }
         
         # Aplicar mapeo de columnas
@@ -101,11 +99,16 @@ class PropertyManager:
             'showaddress', 'url', 'distance', 'description', 'hasvideo', 'status',
             'newdevelopment', 'favourite', 'newproperty', 'haslift', 'pricebyarea',
             'hasplan', 'has3dtour', 'has360', 'hasstaging', 'labels', 'ribbons',
-            'notes', 'topnewdevelopment', 'topplus', 'preferencehighlight',
-            'tophighlight', 'urgentvisualhighlight', 'visualhighlight',
-            'pricedropvalue', 'dropdate', 'pricedroppercentage',
+            'notes', 'preferencehighlight', 'tophighlight', 'topnewdevelopment',
+            'newdevelopmenthighlight', 'topplus', 'urgentvisualhighlight', 
+            'visualhighlight', 'pricedropvalue', 'dropdate', 'pricedroppercentage',
             'newdevelopmentfinished', 'highlightcomment', 'additional_info_tag',
             'additional_info_name', 'status_sort', 'quality_score',
+            
+            # Campos JSONB para objetos anidados
+            'priceinfo', 'contactinfo', 'features', 'detailedtype', 'suggestedtexts',
+            'multimedia', 'highlight', 'parkingspace', 'savedad',
+            
             'created_at', 'updated_at'
         ]
         
@@ -114,15 +117,23 @@ class PropertyManager:
             if col not in df_processed.columns:
                 df_processed[col] = None
         
-        # Procesar campos anidados usando operaciones vectorizadas
-        nested_fields = ['priceInfo', 'contactInfo', 'features', 'detailedType', 
-                        'suggestedTexts', 'multimedia', 'highlight', 'parkingSpace']
+        # Procesar campos JSON anidados - mapear objetos JSON completos a columnas JSONB
+        json_object_mapping = {
+            'priceInfo': 'priceinfo',
+            'contactInfo': 'contactinfo',
+            'features': 'features',
+            'detailedType': 'detailedtype',
+            'suggestedTexts': 'suggestedtexts',
+            'multimedia': 'multimedia',
+            'highlight': 'highlight',
+            'parkingSpace': 'parkingspace',
+            'savedAd': 'savedad'
+        }
         
-        for field in nested_fields:
-            df_processed[field] = df_processed.apply(
-                lambda row: self._extract_nested_data_from_row(row, field), 
-                axis=1
-            )
+        # Aplicar mapeo de objetos JSON
+        for json_field, db_field in json_object_mapping.items():
+            if json_field in df_processed.columns:
+                df_processed[db_field] = df_processed[json_field]
         
         # Seleccionar solo las columnas esperadas
         df_processed = df_processed[expected_columns]
@@ -164,16 +175,21 @@ class PropertyManager:
     
     async def save_properties(self, properties: List[Dict]) -> bool:
         """Guarda una lista de propiedades en la base de datos usando pandas para eficiencia"""
-        if not self.supabase or not properties:
+        logger.info(f"PropertyManager.save_properties called with {len(properties)} properties")
+        
+        if not properties:
+            logger.warning("No properties provided to save")
             return False
             
         try:
             # Convertir a DataFrame para operaciones vectorizadas
             df = pd.DataFrame(properties)
+            logger.info(f"Created DataFrame with {len(df)} rows and {len(df.columns)} columns")
             
             # Filtrar propiedades sin propertyCode
             if 'propertyCode' not in df.columns:
                 logger.warning("No propertyCode column found in properties data")
+                logger.info(f"Available columns: {list(df.columns)}")
                 return False
             
             # Eliminar filas sin propertyCode
@@ -184,34 +200,40 @@ class PropertyManager:
             
             # Obtener lista de propertyCodes únicos
             property_codes = df['propertyCode'].unique().tolist()
-            logger.info(f"Processing {len(property_codes)} unique property codes")
+            logger.info(f"Processing {len(property_codes)} unique property codes: {property_codes}")
             
             # Eliminar propiedades existentes con estos propertycodes (operación vectorizada)
             if property_codes:
+                logger.info(f"Deleting existing properties with codes: {property_codes}")
                 delete_response = self.supabase.table('properties').delete().in_('propertycode', property_codes).execute()
-                logger.info(f"Deleted {len(property_codes)} existing properties")
+                logger.info(f"Delete response: {delete_response}")
             
             # Preparar datos para inserción usando pandas
+            logger.info("Preparing properties dataframe for insertion...")
             df_processed = self._prepare_properties_dataframe(df)
+            logger.info(f"Processed DataFrame shape: {df_processed.shape}")
             
             # Convertir DataFrame a lista de diccionarios para inserción
             properties_data = df_processed.to_dict('records')
+            logger.info(f"Converted to {len(properties_data)} records for insertion")
             
             # Insertar todas las propiedades de una vez (más eficiente)
             if properties_data:
+                logger.info(f"Inserting {len(properties_data)} properties to database...")
                 insert_response = self.supabase.table('properties').insert(properties_data).execute()
-                logger.info(f"Inserted {len(properties_data)} new properties to database")
+                logger.info(f"Insert response: {insert_response}")
+                logger.info(f"Successfully inserted {len(properties_data)} new properties to database")
             
             return True
             
         except Exception as e:
             logger.error(f"Error saving properties: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
     
     async def get_properties_by_session(self, session_id: str) -> List[Dict]:
         """Obtiene propiedades relacionadas con una sesión específica"""
-        if not self.supabase:
-            return []
             
         try:
             # Buscar conversaciones de la sesión que tengan property_list en metadata
@@ -249,8 +271,6 @@ class PropertyManager:
     
     async def get_property_by_code(self, property_code: str) -> Optional[Dict]:
         """Obtiene una propiedad específica por su código"""
-        if not self.supabase:
-            return None
             
         try:
             response = self.supabase.table('properties')\
