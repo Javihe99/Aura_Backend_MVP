@@ -148,7 +148,7 @@ def _get_openai_result(prompt: str, model: str, system_instruction: str) -> dict
             response_format={"type": "json_object"}
         )
 
-        result = response.choices[0].message.content
+        result = response.choices[0].message.content.strip()
         logging.info(f"OpenAI Response: {result}")
         return json.loads(result)
 
@@ -179,7 +179,7 @@ def _get_gemini_result(prompt: str, model: str, system_instruction: str) -> dict
         """
 
         response = gemini_model.generate_content(full_prompt)
-        result = response.candidates[0].content.parts[0].text
+        result = response.candidates[0].content.parts[0].text.strip()
         logging.info(f"Gemini Response: {result}")
         return json.loads(result)
 

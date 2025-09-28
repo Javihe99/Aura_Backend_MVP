@@ -378,10 +378,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Obtener propiedades
         df_raw, records_raw = get_idealista_properties(prompt_result)
         # Guardar propiedades en la base de datos (por separado)
-        background_tasks.add_task(
-            app.state.property_manager.save_properties,
-            df_raw.to_dict('records')
-        )
+
         # Verificar si se encontraron propiedades
         if df_raw.empty:
             # Generar mensaje de sugerencias para el usuario
@@ -404,8 +401,13 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
                 search_params=prompt_result
             )
 
-        # Aplicar filtros de calidad
-        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=request.limit * 3)
+        # Aplicar filtros de calidad con paraphraseo
+        df = app.state.quality_filter.filter_and_rank_properties(
+            df_raw, 
+            top_n=request.limit * 2, 
+            paraphrase_descriptions=True, 
+            max_concurrent=5
+        )
 
         # Limitar resultados y convertir a lista de diccionarios
         records = df.head(request.limit).to_dict(orient='records')
@@ -422,6 +424,11 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Extraer property_list usando pandas (más eficiente)
         property_list = df['propertyCode'].tolist() if not df.empty else []
         
+        background_tasks.add_task(
+            app.state.property_manager.save_properties,
+            df_raw.to_dict('records')
+        )
+
         background_tasks.add_task(
             app.state.memory_manager.save_message,
             session_id, "assistant", summary,
@@ -496,8 +503,13 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
                 search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
             )
 
-        # Aplicar filtros de calidad
-        df = app.state.quality_filter.filter_and_rank_properties(df_raw, top_n=int(request.limit * 2))
+        # Aplicar filtros de calidad con paraphraseo
+        df = app.state.quality_filter.filter_and_rank_properties(
+            df_raw, 
+            top_n=int(request.limit * 2), 
+            paraphrase_descriptions=True, 
+            max_concurrent=5
+        )
 
         records = df.head(int(request.limit)).to_dict(orient='records')
 

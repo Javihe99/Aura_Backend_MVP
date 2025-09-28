@@ -42,16 +42,8 @@ class PropertySummarizer:
             prompt = f"""
             Contexto de conversación:
             {conversation_context}
-            
-            Se encontraron {len(properties)} propiedades del total de {total_properties}. Las {first_top_properties} más relevantes son:
+            Existe {len(properties)} propiedades del total de {total_properties}. Las {first_top_properties} más relevantes son:
             {'. '.join(properties_info)}
-            
-            Genera un resumen conciso (máximo 3 líneas) destacando:
-            1. Número total de propiedades encontradas
-            2. Rango de precios
-            3. Características destacadas de las mejores opciones
-            
-            Responde en formato JSON con la clave "summary".
             """
             result = get_llm_result(prompt, system_instruction=settings.SUMMARY_SYSTEM_INSTRUCTIONS)
             return result.get('summary', 'Se encontraron propiedades interesantes según tus criterios.')
