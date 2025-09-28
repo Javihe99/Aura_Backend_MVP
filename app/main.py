@@ -26,6 +26,7 @@ from app.services.intent_classifier import IntentClassifier, SeniorRealEstateAge
 from app.services.appointment_manager import AppointmentManager
 from app.services.appointment_analyzer import AppointmentAnalyzer
 from app.services.email_service import EmailService
+from app.services.aura_property_manager import AuraPropertyManager
 # Importar utilidades existentes
 from idealista_hook import IdealistaHook
 from utils import get_area_by_giving_location, to_idealista_multipolygon, create_meter_radius_circle
@@ -127,6 +128,7 @@ async def lifespan(app: FastAPI):
     app.state.appointment_manager = AppointmentManager()
     app.state.appointment_analyzer = AppointmentAnalyzer()
     app.state.email_service = EmailService()
+    app.state.aura_property_manager = AuraPropertyManager()
     app.state.request_limiter = RequestLimiter(max_concurrent=10, rate_limit_per_minute=100)
     app.state.task_manager = AsyncTaskManager()
 
@@ -566,19 +568,73 @@ async def get_properties_by_session(session_id: str):
     }
 
 
-@app.get("/property/{property_code}", tags=["Properties"])
-async def get_property_by_code(property_code: str):
+@app.get("/property/exclusive", tags=["Properties"])
+async def get_exclusive_properties():
     """
-    🏠 Obtiene una propiedad específica por su código.
+    🏆 Obtiene todas las propiedades exclusivas de Aura en orden aleatorio.
     
-    Devuelve todos los detalles de una propiedad específica.
+    Este endpoint devuelve todas las propiedades de la tabla `aura_properties`
+    en un orden aleatorio diferente cada vez que se llama.
+    
+    ### 🎯 Características:
+    - **Orden aleatorio**: Cada llamada devuelve las propiedades en diferente orden
+    - **Propiedades exclusivas**: Solo propiedades de la tabla `aura_properties`
+    - **Datos completos**: Incluye toda la información de cada propiedad
+    
+    ### 📊 Respuesta:
+    - Lista de propiedades con todos sus datos
+    - Orden aleatorio en cada llamada
+    - Información completa: precio, ubicación, imágenes, descripción, etc.
+    
+    ### 🔄 Ejemplo de uso:
+    ```bash
+    GET /property/exclusive
+    ```
+    
+    ### 📝 Estructura de respuesta:
+    ```json
+    [
+        {
+            "id": 1,
+            "property_code": "prop_1",
+            "suggested_texts": {"title": "Ático en la Calle San Bernardo"},
+            "address": "Palacio, Madrid",
+            "price": 1480000,
+            "rooms": 4,
+            "bathrooms": 3,
+            "latitude": 40.4271276,
+            "longitude": -3.7090447,
+            "size": 193,
+            "thumbnail": "https://...",
+            "multimedia": {"images": [...]},
+            "description": "Ático exclusivo en el corazón de Madrid",
+            "neighborhood": "Palacio",
+            "municipality": "Madrid",
+            "title": "Ático en la Calle San Bernardo",
+            "created_at": "2024-01-15T10:30:00Z",
+            "updated_at": "2024-01-15T10:30:00Z"
+        }
+    ]
+    ```
     """
-    property_data = await app.state.property_manager.get_property_by_code(property_code)
-    if not property_data:
-        raise HTTPException(status_code=404, detail="Property not found")
-    
-    return property_data
-
+    try:
+        logger.info("Fetching exclusive Aura properties...")
+        
+        # Obtener propiedades exclusivas en orden aleatorio
+        properties = await app.state.aura_property_manager.get_exclusive_properties_random()
+        
+        logger.info(f"Retrieved {len(properties)} exclusive properties")
+        
+        return {
+            "properties": properties,
+            "total_properties": len(properties),
+            "message": "Propiedades exclusivas de Aura obtenidas en orden aleatorio",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting exclusive properties: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @app.get("/health", response_model=HealthResponse, tags=["General"])
 async def health_check():
