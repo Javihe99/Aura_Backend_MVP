@@ -405,7 +405,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         df = app.state.quality_filter.filter_and_rank_properties(
             df_raw, 
             top_n=request.limit * 2, 
-            paraphrase_descriptions=True, 
+            paraphrase_descriptions=False,
             max_concurrent=5
         )
 
