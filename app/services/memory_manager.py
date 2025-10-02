@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from supabase import create_client, Client
 import os
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ class ConversationMemory:
     def _init_supabase(self) -> Optional[Client]:
         """Inicializa la conexión con Supabase"""
         try:
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_ANON_KEY")
+            supabase_url = Config.SUPABASE_URL
+            supabase_key = Config.get_supabase_key()
             
             if not supabase_url or not supabase_key:
                 logger.warning("Supabase credentials not found. Memory will be disabled.")

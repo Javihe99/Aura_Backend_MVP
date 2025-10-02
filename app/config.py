@@ -15,7 +15,7 @@ class Config:
     
     # Supabase Configuration
     SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL")
-    SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
+    SUPABASE_PRIVATE_KEY: Optional[str] = os.getenv("SUPABASE_PRIVATE_KEY")
     
     # Server Configuration
     HOST: str = os.getenv("HOST", "0.0.0.0")
@@ -56,12 +56,17 @@ class Config:
     @classmethod
     def get_supabase_status(cls) -> str:
         """Obtiene el estado de la configuración de Supabase"""
-        if cls.SUPABASE_URL and cls.SUPABASE_ANON_KEY:
+        if cls.SUPABASE_URL and cls.SUPABASE_PRIVATE_KEY:
             return "configured"
-        elif cls.SUPABASE_URL or cls.SUPABASE_ANON_KEY:
+        elif cls.SUPABASE_URL and not cls.SUPABASE_PRIVATE_KEY:
             return "partially_configured"
         else:
             return "not_configured"
+    
+    @classmethod
+    def get_supabase_key(cls) -> Optional[str]:
+        """Obtiene la clave privada de Supabase"""
+        return cls.SUPABASE_PRIVATE_KEY
     
     @classmethod
     def print_config(cls):

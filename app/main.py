@@ -13,7 +13,8 @@ from app.models.schemas import (
     ChatRequest, MapSearchRequest, ChatResponse,
     ConversationHistoryResponse, HealthResponse,
     AppointmentRequest, AppointmentResponse,
-    PropertySearchRequest, PropertySearchResponse
+    PropertySearchRequest, PropertySearchResponse,
+    PropertyDescriptionRequest, PropertyDescriptionResponse
 )
 from app.services.ai_parse import get_llm_result, validate_and_correct_location
 from app.services.concurrency_manager import RequestLimiter, AsyncTaskManager
@@ -171,6 +172,7 @@ app = FastAPI(
     - `POST /maps`: Búsqueda por coordenadas geográficas
     - `POST /appointment`: Crear cita inmobiliaria con análisis IA
     - `POST /properties/search`: Buscar propiedades por IDs específicos
+    - `POST /property/description`: Obtener descripción de propiedad con paraphrasing automático
     - `GET /conversation/{session_id}`: Obtener historial de conversación
     - `GET /appointments/{session_id}`: Obtener citas de una sesión
     - `GET /appointment/{appointment_id}`: Obtener cita específica
@@ -223,6 +225,13 @@ app = FastAPI(
     ```json
     {
       "property_ids": ["12345", "67890", "11111"]
+    }
+    ```
+    
+    **Obtener descripción de propiedad:**
+    ```json
+    {
+      "property_code": "12345"
     }
     ```
     
@@ -915,6 +924,143 @@ async def search_properties_by_ids(request: PropertySearchRequest):
     except Exception as e:
         logger.error(f"Error in search_properties_by_ids: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+@app.post("/property/description", response_model=PropertyDescriptionResponse, tags=["Properties"])
+async def get_property_description(request: PropertyDescriptionRequest, background_tasks: BackgroundTasks):
+    """
+    📝 Obtiene la descripción de una propiedad con paraphrasing automático.
+    
+    Este endpoint:
+    1. **Busca la propiedad** por su código en la base de datos
+    2. **Verifica si existe** `description_paraphrased`
+    3. **Si existe**: Devuelve directamente la descripción parafraseada
+    4. **Si no existe**: Aplica paraphrasing lo devuelve y actualiza la descripción parafraseada
+    
+    ### 📋 Parámetros:
+    - `property_code`: Código único de la propiedad a consultar
+    
+    ### 🔍 Funcionamiento:
+    1. **Consulta la base de datos** para obtener `description` y `description_paraphrased`
+    2. **Si `description_paraphrased` existe**: La devuelve inmediatamente
+    3. **Si `description_paraphrased` es NULL**: 
+       - Aplica paraphrasing usando `PropertyQualityFilter.paraphrase_property_descriptions`
+       - Devuelve la descripción original y parafraseada al frontend
+       - Guarda la descripción parafraseada en la base de datos (background task)
+    
+    ### 📝 Ejemplo de uso:
+    ```json
+    {
+      "property_code": "12345"
+    }
+    ```
+    
+    ### 📊 Respuesta:
+    - `property_code`: Código de la propiedad consultada
+    - `description`: Descripción original de la propiedad
+    - `description_paraphrased`: Descripción parafraseada (si existe o se generó)
+    - `paraphrased`: Indica si se realizó paraphrasing en esta consulta
+    - `message`: Mensaje informativo sobre el procesamiento
+    """
+    try:
+        property_code = request.property_code.strip()
+        
+        if not property_code:
+            raise HTTPException(status_code=400, detail="property_code no puede estar vacío")
+        
+        logger.info(f"Getting description for property: {property_code}")
+        
+        # 1. Buscar la propiedad en la base de datos
+        property_data = await app.state.property_manager.get_property_by_code(property_code)
+        
+        if not property_data:
+            raise HTTPException(status_code=404, detail=f"Propiedad con código '{property_code}' no encontrada")
+        
+        # 2. Verificar si ya existe description_paraphrased
+        description_original = property_data.get('description', '')
+        description_paraphrased = property_data.get('description_paraphrased')
+        
+        if not description_original:
+            raise HTTPException(status_code=404, detail="La propiedad no tiene descripción")
+        
+        # 3. Si ya existe description_paraphrased, devolverla directamente
+        if description_paraphrased and description_paraphrased.strip():
+            logger.info(f"Property {property_code} already has paraphrased description")
+            return PropertyDescriptionResponse(
+                property_code=property_code,
+                description=description_original,
+                description_paraphrased=description_paraphrased,
+                paraphrased=False,
+                message="Descripción parafraseada ya existía en la base de datos"
+            )
+        
+        # 4. Si no existe, aplicar paraphrasing
+        logger.info(f"Property {property_code} needs paraphrasing, processing...")
+        
+        # Crear DataFrame con la propiedad para el paraphrasing
+        import pandas as pd
+        property_df = pd.DataFrame([{
+            'propertyCode': property_code,
+            'description': description_original,
+            'price': property_data.get('price'),
+            'priceByArea': property_data.get('pricebyarea'),
+            'thumbnail': property_data.get('thumbnail')
+        }])
+        
+        # Aplicar paraphrasing usando PropertyQualityFilter
+        paraphrased_df = app.state.quality_filter.paraphrase_property_descriptions(
+            property_df, 
+            max_concurrent=1
+        )
+        
+        # Obtener la descripción parafraseada
+        paraphrased_description = paraphrased_df.iloc[0]['description_paraphrased'] if not paraphrased_df.empty else description_original
+
+        async def _save_paraphrased_description(property_code: str, paraphrased_description: str):
+            """
+            Función auxiliar para guardar la descripción parafraseada en background
+            """
+            try:
+                logger.info(f"Saving paraphrased description for property {property_code}")
+
+                # Actualizar la propiedad con la descripción parafraseada
+                response = app.state.property_manager.supabase.table('properties') \
+                    .update({'description_paraphrased': paraphrased_description}) \
+                    .eq('propertycode', property_code) \
+                    .execute()
+
+                if response.data:
+                    logger.info(f"Successfully saved paraphrased description for property {property_code}")
+                else:
+                    logger.warning(f"No data returned when saving paraphrased description for property {property_code}")
+
+            except Exception as e:
+                logger.error(f"Error saving paraphrased description for property {property_code}: {str(e)}")
+        # 5. Guardar en background task
+        background_tasks.add_task(
+            _save_paraphrased_description,
+            property_code,
+            paraphrased_description
+        )
+        
+        logger.info(f"Property {property_code} paraphrased successfully")
+        
+        return PropertyDescriptionResponse(
+            property_code=property_code,
+            description=description_original,
+            description_paraphrased=paraphrased_description,
+            paraphrased=True,
+            message="Descripción parafraseada generada y guardada en background"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_property_description: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+
 
 
 @app.get("/stats", tags=["General"])

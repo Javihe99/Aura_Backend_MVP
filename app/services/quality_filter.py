@@ -150,7 +150,7 @@ class PropertyQualityFilter:
                 system_instruction=settings.DESCRIPTION_PARAPHRASING_INSTRUCTIONS
             )
             
-            paraphrased = result.get('paraphrased_description', '').strip()
+            paraphrased = result.get('description_paraphrased', '').strip()
             
             # Validar que la respuesta no esté vacía
             if not paraphrased or len(paraphrased) < 10:
@@ -224,7 +224,7 @@ class PropertyQualityFilter:
                 result_df = pd.concat(processed_chunks, ignore_index=True) if processed_chunks else result_df
         else:
             # Procesamiento secuencial usando pandas apply
-            result_df.loc[needs_paraphrase, 'description'] = result_df.loc[needs_paraphrase, 'description'].apply(paraphrase_description)
+            result_df.loc[needs_paraphrase, 'description_paraphrased'] = result_df.loc[needs_paraphrase, 'description'].apply(paraphrase_description)
         
         logger.info(f"Successfully paraphrased {needs_paraphrase.sum()} property descriptions")
         return result_df
@@ -240,7 +240,7 @@ class PropertyQualityFilter:
             
             if needs_paraphrase.any():
                 # Aplicar función solo a las descripciones que lo necesitan
-                result_chunk.loc[needs_paraphrase, 'description'] = result_chunk.loc[needs_paraphrase, 'description'].apply(func)
+                result_chunk.loc[needs_paraphrase, 'description_paraphrased'] = result_chunk.loc[needs_paraphrase, 'description'].apply(func)
             
             return result_chunk
         except Exception as e:

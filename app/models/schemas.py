@@ -116,3 +116,17 @@ class PropertySearchResponse(BaseModel):
     not_found_ids: List[str] = Field(..., description="IDs no encontrados")
 
 
+class PropertyDescriptionRequest(BaseModel):
+    """Modelo de solicitud para obtener descripción de propiedad"""
+    property_code: str = Field(..., description="Código de la propiedad a consultar")
+
+
+class PropertyDescriptionResponse(BaseModel):
+    """Modelo de respuesta de descripción de propiedad"""
+    property_code: str = Field(..., description="Código de la propiedad")
+    description: str = Field(..., description="Descripción original de la propiedad")
+    description_paraphrased: Optional[str] = Field(None, description="Descripción parafraseada (si existe)")
+    paraphrased: bool = Field(..., description="Indica si la descripción fue parafraseada en esta consulta")
+    message: str = Field(..., description="Mensaje informativo sobre el procesamiento")
+
+

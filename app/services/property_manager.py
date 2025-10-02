@@ -5,6 +5,7 @@ from supabase import create_client, Client
 import os
 import pandas as pd
 import numpy as np
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,8 @@ class PropertyManager:
         
     def _init_supabase(self) -> Client:
         """Inicializa la conexión con Supabase"""
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        supabase_url = Config.SUPABASE_URL
+        supabase_key = Config.get_supabase_key()
         
         if not supabase_url or not supabase_key:
             logger.error("Supabase credentials not found in environment variables")
@@ -45,7 +46,7 @@ class PropertyManager:
         df_processed['created_at'] = current_time
         df_processed['updated_at'] = current_time
         
-        # Mapear columnas del DataFrame a nombres de la base de datos
+        # Mapear columnas del DataFrame (camelCase) a nombres de la base de datos (lowercase)
         column_mapping = {
             'propertyCode': 'propertycode',
             'numPhotos': 'numphotos',
@@ -74,7 +75,32 @@ class PropertyManager:
             'newDevelopmentFinished': 'newdevelopmentfinished',
             'highlightComment': 'highlightcomment',
             'externalReference': 'externalreference',
-            'savedAd': 'savedad'
+            'savedAd': 'savedad',
+            'operation': 'operation',
+            'size': 'size',
+            'exterior': 'exterior',
+            'rooms': 'rooms',
+            'bathrooms': 'bathrooms',
+            'address': 'address',
+            'province': 'province',
+            'municipality': 'municipality',
+            'district': 'district',
+            'country': 'country',
+            'neighborhood': 'neighborhood',
+            'latitude': 'latitude',
+            'longitude': 'longitude',
+            'url': 'url',
+            'distance': 'distance',
+            'description': 'description',
+            'status': 'status',
+            'favourite': 'favourite',
+            'labels': 'labels',
+            'ribbons': 'ribbons',
+            'notes': 'notes',
+            'additionalInfoTag': 'additional_info_tag',
+            'additionalInfoName': 'additional_info_name',
+            'statusSort': 'status_sort',
+            'qualityScore': 'quality_score'
         }
         
         # Aplicar mapeo de columnas
@@ -96,14 +122,14 @@ class PropertyManager:
             'price', 'propertytype', 'operation', 'size', 'exterior', 'rooms',
             'bathrooms', 'address', 'province', 'municipality', 'district',
             'country', 'neighborhood', 'locationid', 'latitude', 'longitude',
-            'showaddress', 'url', 'distance', 'description', 'hasvideo', 'status',
-            'newdevelopment', 'favourite', 'newproperty', 'haslift', 'pricebyarea',
-            'hasplan', 'has3dtour', 'has360', 'hasstaging', 'labels', 'ribbons',
-            'notes', 'preferencehighlight', 'tophighlight', 'topnewdevelopment',
-            'newdevelopmenthighlight', 'topplus', 'urgentvisualhighlight', 
-            'visualhighlight', 'pricedropvalue', 'dropdate', 'pricedroppercentage',
-            'newdevelopmentfinished', 'highlightcomment', 'additional_info_tag',
-            'additional_info_name', 'status_sort', 'quality_score',
+            'showaddress', 'url', 'distance', 'description', 'description_paraphrased',
+            'hasvideo', 'status', 'newdevelopment', 'favourite', 'newproperty', 
+            'haslift', 'pricebyarea', 'hasplan', 'has3dtour', 'has360', 'hasstaging', 
+            'labels', 'ribbons', 'notes', 'preferencehighlight', 'tophighlight', 
+            'topnewdevelopment', 'newdevelopmenthighlight', 'topplus', 
+            'urgentvisualhighlight', 'visualhighlight', 'pricedropvalue', 'dropdate', 
+            'pricedroppercentage', 'newdevelopmentfinished', 'highlightcomment', 
+            'additional_info_tag', 'additional_info_name', 'status_sort', 'quality_score',
             
             # Campos JSONB para objetos anidados
             'priceinfo', 'contactinfo', 'features', 'detailedtype', 'suggestedtexts',
@@ -172,9 +198,9 @@ class PropertyManager:
             return None
         except (ValueError, OverflowError, OSError):
             return None
-    
+
     async def save_properties(self, properties: List[Dict]) -> bool:
-        """Guarda una lista de propiedades en la base de datos usando pandas para eficiencia"""
+        """Guarda una lista de propiedades en la base de datos usando upsert para preservar datos existentes"""
         logger.info(f"PropertyManager.save_properties called with {len(properties)} properties")
         
         if not properties:
@@ -186,7 +212,7 @@ class PropertyManager:
             df = pd.DataFrame(properties)
             logger.info(f"Created DataFrame with {len(df)} rows and {len(df.columns)} columns")
             
-            # Filtrar propiedades sin propertyCode
+            # Verificar que existe la columna propertyCode (camelCase) en el DataFrame original
             if 'propertyCode' not in df.columns:
                 logger.warning("No propertyCode column found in properties data")
                 logger.info(f"Available columns: {list(df.columns)}")

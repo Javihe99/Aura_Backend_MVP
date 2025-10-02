@@ -232,6 +232,6 @@ MANTENER solo información relevante sobre la propiedad:
 - Estado de la propiedad
 - Características especiales
 Mantén solo la información relevante sobre las características de la propiedad.
-FORMATO: Responde ÚNICAMENTE con un objeto JSON que contenga la clave "paraphrased_description" con la descripción parafraseada. 
+FORMATO: Responde ÚNICAMENTE con un objeto JSON que contenga la clave "description_paraphrased" con la descripción parafraseada. 
 En el contenido de la respuesta, utiliza frases atractivas y comerciales, por ejemplo: "Aura te presenta este maravilloso apartamento", o variaciones similares que transmitan cercanía y entusiasmo. Procura que el estilo sea persuasivo, elegante y adaptado a un tono de marketing inmobiliario.
 """

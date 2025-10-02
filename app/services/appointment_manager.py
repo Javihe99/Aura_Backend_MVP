@@ -7,6 +7,7 @@ import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from supabase import create_client, Client
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +15,8 @@ class AppointmentManager:
     """Gestor de appointments en Supabase"""
     
     def __init__(self):
-        # Usar os.getenv directamente como PropertyManager
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        supabase_url = Config.SUPABASE_URL
+        supabase_key = Config.get_supabase_key()
         
         if not supabase_url or not supabase_key:
             logger.error("Supabase credentials not found in environment variables")
