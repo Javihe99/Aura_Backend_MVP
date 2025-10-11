@@ -336,12 +336,11 @@ class PropertyManager:
             return cached_data
             
         try:
-            # OPTIMIZACIÓN 1: Método más simple y eficiente usando consulta directa
-            # Usar una consulta más simple que funcione mejor con Supabase
+            # OPTIMIZACIÓN 1: Consulta corregida - obtener todo el metadata
             response = self.supabase.table('conversations')\
-                .select('metadata->property_list')\
+                .select('metadata')\
                 .eq('session_id', session_id)\
-                .not_.is_('metadata->property_list', 'null')\
+                .not_.is_('metadata', 'null')\
                 .order('created_at', desc=True)\
                 .limit(limit * 2)\
                 .execute()
@@ -353,7 +352,8 @@ class PropertyManager:
             # OPTIMIZACIÓN 2: Procesamiento ultra-eficiente
             property_codes = set()
             for conv in response.data:
-                property_list = conv.get('metadata', {}).get('property_list', [])
+                metadata = conv.get('metadata', {})
+                property_list = metadata.get('property_list', [])
                 if isinstance(property_list, list) and property_list:
                     property_codes.update(property_list)
                     if len(property_codes) >= limit:

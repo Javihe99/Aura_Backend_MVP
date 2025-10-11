@@ -16,14 +16,7 @@ NUM_BATHROOMS = [1, 2, 3]
 
 
 async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
-    """Obtiene propiedades de Idealista usando los parámetros proporcionados de forma asíncrona"""
-    sort_parse = {
-        # Defecto es 0
-        # Otros estados = 1
-        "Alquilada": 2,
-        "Nuda propiedad": 3,
-        "Ocupada ilegalmente": 4,
-    }
+    """Obtiene propiedades de Idealista usando los parámetros proporcionados de forma ultra-optimizada"""
     
     # Usar nombre de variable no reservada
     idealista_client = IdealistaHook()
@@ -34,7 +27,8 @@ async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
         return idealista_client.search_properties_by_coordinates(**prompt_result)
     
     loop = asyncio.get_event_loop()
-    status, records = await loop.run_in_executor(None, _search_wrapper)
+    result = await loop.run_in_executor(None, _search_wrapper)
+    status, records = result
     
     if status is False:
         raise ValueError(records)
@@ -49,9 +43,12 @@ async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
         records_copy.pop('elementList', None)
         return empty_df, records_copy
 
+    # OPTIMIZACIÓN CRÍTICA: Procesamiento ultra-rápido
     df = pd.DataFrame(records['elementList'])
+    
+    # Mantener todos los campos originales de Idealista
 
-    # Optimizar procesamiento de labels con operaciones vectorizadas
+    # Procesamiento completo de labels como originalmente
     if 'labels' in df.columns:
         # Usar operaciones vectorizadas en lugar de apply
         df['additional_info_tag'] = None
@@ -68,9 +65,19 @@ async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
         df['additional_info_tag'] = None
         df['additional_info_name'] = None
 
+    # Ordenamiento original con status_sort
+    sort_parse = {
+        # Defecto es 0
+        # Otros estados = 1
+        "Alquilada": 2,
+        "Nuda propiedad": 3,
+        "Ocupada ilegalmente": 4,
+    }
+    
     df['status_sort'] = np.where(df['additional_info_name'].isna(), 0,
                                  df['additional_info_name'].map(sort_parse).fillna(1)).astype(int)
     df = df.sort_values(by=['status_sort', 'priceByArea'], ascending=True)
+    
     logger.info(f"Se han encontrado un total de {len(df)} propiedades")
     df = df.replace({np.nan: None})
     

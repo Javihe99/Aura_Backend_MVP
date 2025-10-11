@@ -10,7 +10,7 @@ class PropertySummarizer:
     """Generador de resúmenes de propiedades usando LLM"""
 
     @staticmethod
-    async def generate_summary(properties: List[Dict], first_top_properties: int = 20,
+    async def generate_summary(properties: List[Dict], first_top_properties,
                                conversation_context: str = "", total_properties: int = 0) -> str:
 
         """Genera un resumen de las propiedades encontradas"""
@@ -20,6 +20,7 @@ class PropertySummarizer:
         try:
             # Preparar información de las mejores propiedades
             top_properties = properties[:first_top_properties]
+            properties
             properties_info = []
 
             for i, prop in enumerate(top_properties, 1):
@@ -41,7 +42,7 @@ class PropertySummarizer:
             prompt = f"""
             Contexto de conversación:
             {conversation_context}
-            Existe {len(properties)} propiedades del total de {total_properties}. Las {first_top_properties} más relevantes son:
+            Existe {len(properties)} propiedades del total de {total_properties}. Los más relevantes son:
             {'. '.join(properties_info)}
             """
             result = get_llm_result(prompt, system_instruction=settings.SUMMARY_SYSTEM_INSTRUCTIONS)
