@@ -27,19 +27,11 @@ class LLMModel(Enum):
 class LLMVersion(Enum):
     """Enumeración de los diferentes modelos de LLM disponibles."""
     OPENAI_4_1 = "gpt-4.1"
+    OPENAI_4o_mini = "gpt-4o-mini"
     OPENAI_4_1_MINI = "gpt-4.1-mini"
     OPENAI_4_1_NANO = "gpt-4.1-nano"
     CLAUDE_3_SONNET_20240229 = "claude-3-sonnet-20240229"
     GEMINI_1_5_FLASH_EXP = "gemini-1.5-flash"
-
-
-class GeocodingProvider(Enum):
-    """Available geocoding providers"""
-    NOMINATIM = "nominatim"
-    GOOGLE = "google"
-    HERE = "here"
-    MAPBOX = "mapbox"
-
 
 class LocationType(Enum):
     """Available geocoding providers"""
@@ -97,34 +89,6 @@ def _get_nominatim_point(query: str) -> tuple[float, float]:
     """Try direct Nominatim search"""
     result = ox.geocode(query)
     return result
-
-
-def create_interactive_map(geom: Union[Polygon, MultiPolygon], output_html: str = "map.html"):
-    if geom.geom_type == 'Polygon':
-        coords = list(geom.exterior.coords)
-    else:
-        raise ValueError("Geometría no soportada: {}".format(geom.geom_type))
-    # Folium expects coords in [lat, lon] order
-    coords_latlon = [(lat, lon) for lon, lat in coords]
-
-    # Center map on the polygon centroid
-    center_lat = sum(lat for lat, _ in coords_latlon) / len(coords_latlon)
-    center_lon = sum(lon for _, lon in coords_latlon) / len(coords_latlon)
-
-    # Create map
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
-
-    # Add polygon
-    folium.Polygon(
-        locations=coords_latlon,
-        color="blue",
-        weight=2,
-        fill=True,
-        fill_opacity=0.3
-    ).add_to(m)
-
-    # Save to HTML
-    m.save(output_html)
 
 
 def find_hmac_sha256(message, key):

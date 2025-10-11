@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Optional
 
@@ -5,7 +6,9 @@ from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
-
+logger = logging.getLogger(__name__)
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
 class Config:
     """Configuración centralizada de la aplicación"""
     
@@ -41,19 +44,6 @@ class Config:
     DEFAULT_SEARCH_RADIUS: int = int(os.getenv("DEFAULT_SEARCH_RADIUS", "1000"))
     
     @classmethod
-    def validate(cls) -> bool:
-        """Valida que las configuraciones requeridas estén presentes"""
-        required_keys = ["OPENAI_API_KEY", "GOOGLE_API_KEY"]
-        missing_keys = [key for key in required_keys if not getattr(cls, key)]
-        
-        if missing_keys:
-            print(f"⚠️  Warning: Missing required API keys: {', '.join(missing_keys)}")
-            print("   Some features may not work properly.")
-            return False
-        
-        return True
-    
-    @classmethod
     def get_supabase_status(cls) -> str:
         """Obtiene el estado de la configuración de Supabase"""
         if cls.SUPABASE_URL and cls.SUPABASE_PRIVATE_KEY:
@@ -80,12 +70,6 @@ class Config:
         print(f"   Max Concurrent: {cls.MAX_CONCURRENT_REQUESTS}")
         print(f"   Rate Limit: {cls.RATE_LIMIT_PER_MINUTE}/min")
 
-# Instancia global de configuración
+
 config = Config()
-
-
-
-
-
-
 

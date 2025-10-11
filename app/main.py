@@ -1,10 +1,8 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Union
 
-import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,32 +11,31 @@ from app.models.schemas import (
     ChatRequest, MapSearchRequest, ChatResponse,
     ConversationHistoryResponse, HealthResponse,
     AppointmentRequest, AppointmentResponse,
-    PropertySearchRequest, PropertySearchResponse,
-    PropertyDescriptionRequest, PropertyDescriptionResponse
+    PropertySearchRequest, PropertySearchResponse
 )
 from app.services.ai_parse import get_llm_result, validate_and_correct_location
+from app.services.appointment_analyzer import AppointmentAnalyzer
+from app.services.appointment_manager import AppointmentManager
+from app.services.aura_property_manager import AuraPropertyManager
 from app.services.concurrency_manager import RequestLimiter, AsyncTaskManager
+from app.services.email_service import EmailService
+# Importar utilidades existentes
+from app.services.idealista_hook import get_idealista_properties
+from app.services.intent_classifier import IntentClassifier, SeniorRealEstateAgent
 # Importar servicios
 from app.services.memory_manager import ConversationMemory
 from app.services.property_manager import PropertyManager
 from app.services.property_summarizer import PropertySummarizer
 from app.services.quality_filter import PropertyQualityFilter
-from app.services.intent_classifier import IntentClassifier, SeniorRealEstateAgent
-from app.services.appointment_manager import AppointmentManager
-from app.services.appointment_analyzer import AppointmentAnalyzer
-from app.services.email_service import EmailService
-from app.services.aura_property_manager import AuraPropertyManager
-# Importar utilidades existentes
-from idealista_hook import IdealistaHook
 from utils import get_area_by_giving_location, to_idealista_multipolygon, create_meter_radius_circle
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # Configuración por defecto
 DEFAULT_CITY = 'Madrid, España'
-
 
 # ========== HELPER FUNCTIONS ==========
 def generate_search_suggestions(prompt_result: dict) -> str:
@@ -68,72 +65,24 @@ def generate_search_suggestions(prompt_result: dict) -> str:
     return "Te sugiero:\n" + "\n".join(suggestions[:4])  # Limitar a 4 sugerencias
 
 
-def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame,dict):
-    """Obtiene propiedades de Idealista usando los parámetros proporcionados"""
-    sort_parse = {
-        # Defecto es 0
-        # Otros estados = 1
-        "Alquilada": 2,
-        "Nuda propiedad": 3,
-        "Ocupada ilegalmente": 4,
-    }
-    property = IdealistaHook()
-    property.update_token()
-    status, records = property.search_properties_by_coordinates(**prompt_result)
-    if status is False:
-        raise ValueError(records)
-    
-    # Verificar si hay propiedades encontradas
-    if not records.get('elementList') or len(records['elementList']) == 0:
-        logger.warning("No se encontraron propiedades con los parámetros especificados")
-        # Crear DataFrame vacío con las columnas esperadas
-        empty_df = pd.DataFrame(columns=['propertyCode', 'labels', 'priceByArea'])
-        empty_df = empty_df.replace({np.nan: None})
-        del records['elementList']
-        return empty_df, records
-    
-    df = pd.DataFrame(records['elementList'])
-    
-    # Verificar si la columna 'labels' existe antes de procesarla
-    if 'labels' in df.columns:
-        df[['additional_info_tag', 'additional_info_name']] = df['labels'].apply(
-            lambda x: pd.Series([x[0]['name'], x[0]['text']]) if isinstance(x, list) and len(x) > 0 else pd.Series([None, None]))
-    else:
-        # Si no hay columna labels, crear columnas vacías
-        df['additional_info_tag'] = None
-        df['additional_info_name'] = None
-    
-    df['status_sort'] = np.where(df['additional_info_name'].isna(), 0,
-                                 df['additional_info_name'].map(sort_parse).fillna(1)).astype(int)
-    df = df.sort_values(by=['status_sort', 'priceByArea'], ascending=True)
-    logger.info(f"Se han encontrado un total de {len(df)} propiedades")
-    df = df.replace({np.nan: None})
-    del records['elementList']
-    return df, records
 
 
 # ========== LIFECYCLE MANAGER ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestor del ciclo de vida de la aplicación"""
+    """Gestor del ciclo de vida de la aplicación con lazy loading"""
     # Startup
     logger.info("🚀 Starting Aura Backend MVP...")
 
-    # Inicializar componentes
-    app.state.memory_manager = ConversationMemory()
-    app.state.property_manager = PropertyManager()
-    app.state.quality_filter = PropertyQualityFilter()
-    app.state.summarizer = PropertySummarizer()
-    app.state.intent_classifier = IntentClassifier()
-    app.state.senior_agent = SeniorRealEstateAgent()
-    app.state.appointment_manager = AppointmentManager()
-    app.state.appointment_analyzer = AppointmentAnalyzer()
-    app.state.email_service = EmailService()
-    app.state.aura_property_manager = AuraPropertyManager()
+    # Inicializar solo servicios críticos
     app.state.request_limiter = RequestLimiter(max_concurrent=10, rate_limit_per_minute=100)
     app.state.task_manager = AsyncTaskManager()
+    
+    # Lazy loading para servicios no críticos
+    app.state._services_initialized = False
+    app.state._services = {}
 
-    logger.info("✅ All services initialized successfully")
+    logger.info("✅ Core services initialized successfully")
 
     yield
 
@@ -141,13 +90,36 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down Aura Backend MVP...")
 
     # Limpiar tareas activas
-    for task_id in list(app.state.task_manager.tasks.keys()):
-        await app.state.task_manager.cancel_task(task_id)
+    if hasattr(app.state, 'task_manager'):
+        for task_id in list(app.state.task_manager.tasks.keys()):
+            await app.state.task_manager.cancel_task(task_id)
 
     # Limpiar solicitudes antiguas
-    await app.state.request_limiter.cleanup_old_requests()
+    if hasattr(app.state, 'request_limiter'):
+        await app.state.request_limiter.cleanup_old_requests()
 
     logger.info("✅ Cleanup completed")
+
+
+def get_service(app, service_name: str):
+    """Lazy loading de servicios"""
+    if not hasattr(app.state, '_services_initialized') or not app.state._services_initialized:
+        app.state._services_initialized = True
+        app.state._services = {
+            'memory_manager': ConversationMemory(),
+            'property_manager': PropertyManager(),
+            'quality_filter': PropertyQualityFilter(),
+            'summarizer': PropertySummarizer(),
+            'intent_classifier': IntentClassifier(),
+            'senior_agent': SeniorRealEstateAgent(),
+            'appointment_manager': AppointmentManager(),
+            'appointment_analyzer': AppointmentAnalyzer(),
+            'email_service': EmailService(),
+            'aura_property_manager': AuraPropertyManager()
+        }
+        logger.info("✅ All services initialized with lazy loading")
+    
+    return app.state._services.get(service_name)
 
 
 # ========== FASTAPI APP ==========
@@ -156,27 +128,14 @@ app = FastAPI(
     description="""
     ## 🏠 Backend API para asistencia inmobiliaria inteligente
     
-    ### ✨ Características principales:
-    - 🧠 **Clasificación inteligente de intenciones** usando IA
-    - 🏠 **Búsqueda de propiedades** por lenguaje natural con LLM (OpenAI/Gemini)
-    - 👨‍💼 **Asesor experto** para consultas generales del sector inmobiliario
-    - 🗺️ **Búsqueda por coordenadas** geográficas
-    - 💾 **Memoria de conversación** persistente con Supabase
-    - 🎯 **Filtros de calidad inteligentes** para mejores resultados
-    - 📊 **Resúmenes automáticos** generados por LLM
-    - ⚡ **Gestión de concurrencia** y rate limiting
-    - 🔄 **Historial de conversaciones** por sesión/usuario
-    
     ### 🚀 Endpoints disponibles:
     - `POST /chat`: Chat inteligente con clasificación de intenciones
     - `POST /maps`: Búsqueda por coordenadas geográficas
     - `POST /appointment`: Crear cita inmobiliaria con análisis IA
     - `POST /properties/search`: Buscar propiedades por IDs específicos
-    - `POST /property/description`: Obtener descripción de propiedad con paraphrasing automático
     - `GET /conversation/{session_id}`: Obtener historial de conversación
     - `GET /appointments/{session_id}`: Obtener citas de una sesión
     - `GET /appointment/{appointment_id}`: Obtener cita específica
-    - `GET /appointments/recent`: Obtener citas recientes
     - `GET /health`: Estado del servicio y conexiones
     
     ### 📝 Ejemplos de uso:
@@ -225,13 +184,6 @@ app = FastAPI(
     ```json
     {
       "property_ids": ["12345", "67890", "11111"]
-    }
-    ```
-    
-    **Obtener descripción de propiedad:**
-    ```json
-    {
-      "property_code": "12345"
     }
     ```
     
@@ -305,9 +257,7 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
     - "¿Cuál es la diferencia entre compra y alquiler?"
     """
     # Obtener o crear sesión
-    session_id = await app.state.memory_manager.get_or_create_session(
-        request.session_id, request.ip_address
-    )
+    session_id = request.session_id
 
     # Verificar límite de concurrencia
     try:
@@ -317,17 +267,19 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
 
     try:
         # Obtener historial de conversación
-        history = await app.state.memory_manager.get_conversation_history(session_id)
-        conversation_context = app.state.memory_manager.format_history_for_llm(history)
+        memory_manager = get_service(app, 'memory_manager')
+        history = await memory_manager.get_conversation_history(session_id)
+        conversation_context = memory_manager.format_history_for_llm(history)
 
         # Guardar mensaje del usuario
         background_tasks.add_task(
-            app.state.memory_manager.save_message,
+            memory_manager.save_message,
             session_id, "user", request.prompt, None, request.ip_address
         )
 
         # 1. CLASIFICAR INTENCIÓN DEL USUARIO
-        intent_classification = await app.state.intent_classifier.classify_intent(
+        intent_classifier = get_service(app, 'intent_classifier')
+        intent_classification = await intent_classifier.classify_intent(
             request.prompt, conversation_context
         )
         
@@ -335,13 +287,14 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         
         # 2. SI NO ES BÚSQUEDA DE PROPIEDADES, RESPONDER COMO SENIOR DE INMOBILIARIA
         if intent_classification["intent"] == "general_inquiry":
-            senior_response = await app.state.senior_agent.generate_response(
+            senior_agent = get_service(app, 'senior_agent')
+            senior_response = await senior_agent.generate_response(
                 request.prompt, conversation_context
             )
             
             # Guardar respuesta del senior
             background_tasks.add_task(
-                app.state.memory_manager.save_message,
+                memory_manager.save_message,
                 session_id, "assistant", senior_response,
                 {"intent": "general_inquiry", "classification": intent_classification}, 
                 request.ip_address
@@ -356,24 +309,31 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
             )
 
         # 3. SI ES BÚSQUEDA DE PROPIEDADES, CONTINUAR CON EL FLUJO HABITUAL
-        # Procesar con LLM incluyendo contexto
+        # Procesar con LLM incluyendo contexto de forma asíncrona
         enhanced_prompt = f"{conversation_context}\n\nNueva consulta: {request.prompt}"
-        prompt_result = get_llm_result(enhanced_prompt)
 
-        # Validar y corregir ubicación
+        if not enhanced_prompt.strip():
+            raise ValueError("Prompt vacío o inválido")
+
+        loop = asyncio.get_event_loop()
+        prompt_result = await loop.run_in_executor(None, get_llm_result, enhanced_prompt)
+
+        # Validar y corregir ubicación de forma asíncrona
         location_validation = {}
-        if "locationName" in prompt_result:
-            location_validation = validate_and_correct_location(
-                prompt_result["locationName"],
-                DEFAULT_CITY
-            )
-
-            if location_validation["confidence"] > 0.7:
-                logger.info(f"Using corrected location: {location_validation['corrected_location']}")
-            else:
-                logger.warning(f"Low confidence location: {location_validation['reason']}")
-        else:
+        if "locationName" not in prompt_result:
             raise ValueError("No se especificó ubicación en la consulta")
+        
+        # Ejecutar validación en thread pool
+        loop = asyncio.get_event_loop()
+        location_validation = await loop.run_in_executor(
+            None, validate_and_correct_location, prompt_result["locationName"], DEFAULT_CITY
+        )
+
+        # Vamos a validar la ubicación de llm, la confianza suelen estar más de 0.8-0.9
+        if location_validation["confidence"] > 0.7:
+            logger.info(f"Using corrected location: {location_validation['corrected_location']}")
+        else:
+            logger.warning(f"Low confidence location: {location_validation['reason']}")
 
         # Obtener coordenadas y crear polígono
         if location_validation:
@@ -384,8 +344,8 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         geojson_str = to_idealista_multipolygon(coordinates)
         prompt_result['shape'] = geojson_str
 
-        # Obtener propiedades
-        df_raw, records_raw = get_idealista_properties(prompt_result)
+        # Obtener propiedades de forma asíncrona
+        df_raw, records_raw = await get_idealista_properties(prompt_result)
         # Guardar propiedades en la base de datos (por separado)
 
         # Verificar si se encontraron propiedades
@@ -395,8 +355,9 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
             no_properties_message = f"No se encontraron propiedades con los criterios especificados. {suggestions}"
             
             # Guardar mensaje del asistente
+            memory_manager = get_service(app, 'memory_manager')
             background_tasks.add_task(
-                app.state.memory_manager.save_message,
+                memory_manager.save_message,
                 session_id, "assistant", no_properties_message,
                 {"properties_found": 0, "search_params": prompt_result,
                  "property_list": [], "llm_summary": no_properties_message}, request.ip_address
@@ -410,10 +371,11 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
                 search_params=prompt_result
             )
 
-        # Aplicar filtros de calidad con paraphraseo
-        df = app.state.quality_filter.filter_and_rank_properties(
+        # Aplicar filtros de calidad optimizados
+        quality_filter = get_service(app, 'quality_filter')
+        df = quality_filter.filter_and_rank_properties(
             df_raw, 
-            top_n=request.limit * 2, 
+            top_n=request.limit,  # Solo filtrar lo necesario
             paraphrase_descriptions=False,
             max_concurrent=5
         )
@@ -422,10 +384,12 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         records = df.head(request.limit).to_dict(orient='records')
 
         # Generar resumen con LLM
-        summary = await app.state.summarizer.generate_summary(records, conversation_context=enhanced_prompt,total_properties=records_raw.get('total', 0))
+        summarizer = get_service(app, 'summarizer')
+        summary = await summarizer.generate_summary(records, conversation_context=enhanced_prompt,total_properties=records_raw.get('total', 0))
 
-        # Valor un pesado eliminar 'shape' del prompt_result antes de guardarlo
-        del prompt_result['shape']
+        # Limpieza segura de memoria
+        prompt_result_clean = prompt_result.copy()
+        prompt_result_clean.pop('shape', None)
 
 
 
@@ -433,17 +397,29 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
         # Extraer property_list usando pandas (más eficiente)
         property_list = df['propertyCode'].tolist() if not df.empty else []
         
+        # Optimizar operaciones de base de datos con transacción
+        property_manager = get_service(app, 'property_manager')
+        memory_manager = get_service(app, 'memory_manager')
+        
+        # Preparar datos para transacción
+        properties_data = df_raw.to_dict('records') if not df_raw.empty else []
+        message_metadata = {
+            "properties_found": len(records), 
+            "search_params": prompt_result_clean,
+            "property_list": property_list,
+            "llm_summary": summary
+        }
+        
+        # Ejecutar operaciones en background
         background_tasks.add_task(
-            app.state.property_manager.save_properties,
-            df_raw.to_dict('records')
+            property_manager.save_properties,
+            properties_data
         )
 
         background_tasks.add_task(
-            app.state.memory_manager.save_message,
+            memory_manager.save_message,
             session_id, "assistant", summary,
-            {"properties_found": len(records), "search_params": prompt_result,
-             "property_list": property_list,
-             "llm_summary": summary}, request.ip_address
+            message_metadata, request.ip_address
         )
 
         return ChatResponse(
@@ -451,12 +427,21 @@ async def chat_search(request: ChatRequest, background_tasks: BackgroundTasks):
             properties=records,
             total_found=len(df),
             session_id=session_id,
-            search_params=prompt_result
+            search_params=prompt_result_clean
         )
 
+    except ValueError as e:
+        logger.warning(f"Validation error in chat_search: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
+    except ConnectionError as e:
+        logger.error(f"Connection error in chat_search: {str(e)}")
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+    except TimeoutError as e:
+        logger.error(f"Timeout error in chat_search: {str(e)}")
+        raise HTTPException(status_code=504, detail="Timeout en la operación")
     except Exception as e:
-        logger.error(f"Error in chat_search: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in chat_search: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
 
     finally:
         app.state.request_limiter.release(session_id)
@@ -471,9 +456,7 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
     aplicando filtros de calidad y generando resúmenes automáticos.
     """
     # Obtener o crear sesión
-    session_id = await app.state.memory_manager.get_or_create_session(
-        request.session_id, request.ip_address
-    )
+    session_id = request.session_id
 
     try:
         await app.state.request_limiter.acquire(session_id)
@@ -487,8 +470,8 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
 
         prompt_result_final = {'shape': multipolygon_str}
 
-        # Obtener propiedades
-        df_raw, records_raw = get_idealista_properties(prompt_result_final)
+        # Obtener propiedades de forma asíncrona
+        df_raw, records_raw = await get_idealista_properties(prompt_result_final)
 
         # Verificar si se encontraron propiedades
         if df_raw.empty:
@@ -497,8 +480,9 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             no_properties_message = f"No se encontraron propiedades en el radio de {request.metro}m desde las coordenadas especificadas. {suggestions}"
             
             # Guardar mensaje del sistema
+            memory_manager = get_service(app, 'memory_manager')
             background_tasks.add_task(
-                app.state.memory_manager.save_message,
+                memory_manager.save_message,
                 session_id, "system", no_properties_message,
                 {"lat": request.lat, "lng": request.lng, "radius": request.metro, 
                  "properties_found": 0, "property_list": []}, request.ip_address
@@ -512,30 +496,34 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
                 search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
             )
 
-        # Aplicar filtros de calidad con paraphraseo
-        df = app.state.quality_filter.filter_and_rank_properties(
+        # Aplicar filtros de calidad optimizados
+        quality_filter = get_service(app, 'quality_filter')
+        df = quality_filter.filter_and_rank_properties(
             df_raw, 
-            top_n=int(request.limit * 2), 
+            top_n=request.limit,  # Solo filtrar lo necesario
             paraphrase_descriptions=False,
             max_concurrent=5
         )
 
-        records = df.head(int(request.limit)).to_dict(orient='records')
+        # Optimizar conversión a dict
+        records = df.head(request.limit).to_dict(orient='records')
 
         # Generar resumen
         search_description = f"Búsqueda en radio de {request.metro}m desde coordenadas ({request.lat}, {request.lng})"
-        summary = await app.state.summarizer.generate_summary(
+        summarizer = get_service(app, 'summarizer')
+        summary = await summarizer.generate_summary(
             records,
             first_top_properties=20,
             conversation_context=search_description,
             total_properties=len(df)
         )
 
-        # Guardar conversación en historial (por separado)
+        # Guardar conversación en historial optimizado
         property_list = df['propertyCode'].tolist() if not df.empty else []
+        memory_manager = get_service(app, 'memory_manager')
         
         background_tasks.add_task(
-            app.state.memory_manager.save_message,
+            memory_manager.save_message,
             session_id, "system", search_description,
             {"lat": request.lat, "lng": request.lng, "radius": request.metro, 
              "properties_found": len(records), "property_list": property_list}, request.ip_address
@@ -549,9 +537,18 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
         )
 
+    except ValueError as e:
+        logger.warning(f"Validation error in maps_search: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
+    except ConnectionError as e:
+        logger.error(f"Connection error in maps_search: {str(e)}")
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+    except TimeoutError as e:
+        logger.error(f"Timeout error in maps_search: {str(e)}")
+        raise HTTPException(status_code=504, detail="Timeout en la operación")
     except Exception as e:
-        logger.error(f"Error in maps_search: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in maps_search: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
 
     finally:
         app.state.request_limiter.release(session_id)
@@ -565,7 +562,8 @@ async def get_conversation_history(session_id: str):
     Permite recuperar el contexto completo de una conversación para mantener
     la continuidad en las búsquedas de propiedades.
     """
-    history = await app.state.memory_manager.get_conversation_history(session_id)
+    memory_manager = get_service(app, 'memory_manager')
+    history = await memory_manager.get_conversation_history(session_id)
     return ConversationHistoryResponse(
         session_id=session_id,
         history=history,
@@ -574,18 +572,29 @@ async def get_conversation_history(session_id: str):
 
 
 @app.get("/properties/{session_id}", tags=["Properties"])
-async def get_properties_by_session(session_id: str):
+async def get_properties_by_session(session_id: str, limit: int = 50):
     """
-    🏠 Obtiene todas las propiedades relacionadas con una sesión específica.
+    🏠 Obtiene las propiedades relacionadas con una sesión específica.
     
-    Devuelve todas las propiedades que han sido mostradas en las conversaciones
-    de la sesión especificada.
+    Devuelve las propiedades que han sido mostradas en las conversaciones
+    de la sesión especificada, limitadas a los últimos registros.
+    
+    ### 📋 Parámetros:
+    - `session_id`: ID de la sesión
+    - `limit`: Número máximo de propiedades a devolver (por defecto: 50)
+    
+    ### 🎯 Características:
+    - **Limitado por defecto**: Devuelve máximo 50 propiedades para mejor rendimiento
+    - **Últimos registros**: Obtiene las propiedades más recientes de la sesión
+    - **Eficiente**: Consulta optimizada en Supabase con LIMIT
     """
-    properties = await app.state.property_manager.get_properties_by_session(session_id)
+    property_manager = get_service(app, 'property_manager')
+    properties = await property_manager.get_properties_by_session(session_id, limit=limit)
     return {
         "session_id": session_id,
         "properties": properties,
-        "total_properties": len(properties)
+        "total_properties": len(properties),
+        "limit": limit
     }
 
 
@@ -642,7 +651,8 @@ async def get_exclusive_properties():
         logger.info("Fetching exclusive Aura properties...")
         
         # Obtener propiedades exclusivas en orden aleatorio
-        properties = await app.state.aura_property_manager.get_exclusive_properties_random()
+        aura_property_manager = get_service(app, 'aura_property_manager')
+        properties = await aura_property_manager.get_exclusive_properties_random()
         
         logger.info(f"Retrieved {len(properties)} exclusive properties")
         
@@ -653,6 +663,9 @@ async def get_exclusive_properties():
             "timestamp": datetime.now().isoformat()
         }
         
+    except ConnectionError as e:
+        logger.error(f"Connection error getting exclusive properties: {str(e)}")
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
     except Exception as e:
         logger.error(f"Error getting exclusive properties: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
@@ -660,7 +673,8 @@ async def get_exclusive_properties():
 @app.get("/health", response_model=HealthResponse, tags=["General"])
 async def health_check():
     """🏥 Endpoint de health check con estado de conexiones"""
-    supabase_connected = app.state.memory_manager.supabase is not None
+    from app.services.supabase_helper import get_supabase_client
+    supabase_connected = get_supabase_client() is not None
 
     return HealthResponse(
         status="healthy",
@@ -727,17 +741,19 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
         try:
             # 1. OBTENER HISTORIAL DE CONVERSACIÓN
             logger.info(f"Obteniendo historial para sesión: {request.session_id}")
-            app.state.memory_manager.max_history = 20  # Aumentar límite para análisis de citas
-            conversation_history = await app.state.memory_manager.get_conversation_history(request.session_id)
+            memory_manager = get_service(app, 'memory_manager')
+            memory_manager.max_history = 20  # Aumentar límite para análisis de citas
+            conversation_history = await memory_manager.get_conversation_history(request.session_id)
             
             # 2. ANALIZAR CONVERSACIÓN CON IA
             logger.info("Analizando conversación con IA...")
-            analysis_result = await app.state.appointment_analyzer.analyze_conversation_history(
+            appointment_analyzer = get_service(app, 'appointment_analyzer')
+            analysis_result = await appointment_analyzer.analyze_conversation_history(
                 conversation_history, client_ip
             )
             
             # 3. CREAR RESUMEN DE CONVERSACIÓN
-            conversation_summary = app.state.appointment_analyzer.create_conversation_summary(
+            conversation_summary = appointment_analyzer.create_conversation_summary(
                 conversation_history, analysis_result
             )
             
@@ -770,15 +786,17 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
             
             # 6. GUARDAR APPOINTMENT EN BASE DE DATOS
             logger.info("Guardando appointment en base de datos...")
-            created_appointment = await app.state.appointment_manager.create_appointment(appointment_data)
+            appointment_manager = get_service(app, 'appointment_manager')
+            created_appointment = await appointment_manager.create_appointment(appointment_data)
             
             # 7. FORMATEAR RESPUESTA (una sola vez)
-            response_data = app.state.appointment_manager.format_appointment_for_response(created_appointment)
+            response_data = appointment_manager.format_appointment_for_response(created_appointment)
             
             # 8. ENVIAR EMAIL DE NOTIFICACIÓN (en background)
             logger.info("Programando envío de email...")
+            email_service = get_service(app, 'email_service')
             background_tasks.add_task(
-                app.state.email_service.send_appointment_notification,
+                email_service.send_appointment_notification,
                 response_data
             )
             
@@ -786,6 +804,12 @@ async def create_appointment(request: AppointmentRequest, http_request: Request,
             
             return AppointmentResponse(**response_data)
             
+        except ValueError as e:
+            logger.warning(f"Validation error creating appointment: {str(e)}")
+            raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
+        except ConnectionError as e:
+            logger.error(f"Connection error creating appointment: {str(e)}")
+            raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
         except Exception as e:
             logger.error(f"Error creando appointment: {str(e)}")
             # Si es un error de validación de datos, devolver 422
@@ -812,9 +836,10 @@ async def get_appointments_by_session(session_id: str):
     Devuelve todas las citas programadas para la sesión especificada,
     ordenadas por fecha de creación (más recientes primero).
     """
-    appointments = await app.state.appointment_manager.get_appointments_by_session(session_id)
+    appointment_manager = get_service(app, 'appointment_manager')
+    appointments = await appointment_manager.get_appointments_by_session(session_id)
     formatted_appointments = [
-        app.state.appointment_manager.format_appointment_for_response(apt) 
+        appointment_manager.format_appointment_for_response(apt) 
         for apt in appointments
     ]
     
@@ -833,32 +858,14 @@ async def get_appointment_by_id(appointment_id: str):
     Devuelve todos los detalles de una cita específica incluyendo
     el análisis de conversación y metadatos extraídos.
     """
-    appointment = await app.state.appointment_manager.get_appointment_by_id(appointment_id)
+    appointment_manager = get_service(app, 'appointment_manager')
+    appointment = await appointment_manager.get_appointment_by_id(appointment_id)
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
     
-    return app.state.appointment_manager.format_appointment_for_response(appointment)
+    return appointment_manager.format_appointment_for_response(appointment)
 
 
-@app.get("/appointments/recent", tags=["Appointments"])
-async def get_recent_appointments(limit: int = 10):
-    """
-    📅 Obtiene las citas más recientes.
-    
-    Devuelve las citas más recientes del sistema, útiles para
-    monitoreo y gestión de citas.
-    """
-    appointments = await app.state.appointment_manager.get_recent_appointments(limit)
-    formatted_appointments = [
-        app.state.appointment_manager.format_appointment_for_response(apt) 
-        for apt in appointments
-    ]
-    
-    return {
-        "appointments": formatted_appointments,
-        "total_appointments": len(formatted_appointments),
-        "limit": limit
-    }
 
 
 @app.post("/properties/search", response_model=PropertySearchResponse, tags=["Properties"])
@@ -907,7 +914,8 @@ async def search_properties_by_ids(request: PropertySearchRequest):
         logger.info(f"Searching for properties with IDs: {property_ids}")
         
         # Buscar propiedades usando el PropertyManager
-        search_result = await app.state.property_manager.get_properties_by_codes(property_ids)
+        property_manager = get_service(app, 'property_manager')
+        search_result = await property_manager.get_properties_by_codes(property_ids)
         
         # Preparar respuesta
         response = PropertySearchResponse(
@@ -921,146 +929,15 @@ async def search_properties_by_ids(request: PropertySearchRequest):
         
         return response
         
+    except ValueError as e:
+        logger.warning(f"Validation error in search_properties_by_ids: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
+    except ConnectionError as e:
+        logger.error(f"Connection error in search_properties_by_ids: {str(e)}")
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
     except Exception as e:
         logger.error(f"Error in search_properties_by_ids: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
-
-
-@app.post("/property/description", response_model=PropertyDescriptionResponse, tags=["Properties"])
-async def get_property_description(request: PropertyDescriptionRequest, background_tasks: BackgroundTasks):
-    """
-    📝 Obtiene la descripción de una propiedad con paraphrasing automático.
-    
-    Este endpoint:
-    1. **Busca la propiedad** por su código en la base de datos
-    2. **Verifica si existe** `description_paraphrased`
-    3. **Si existe**: Devuelve directamente la descripción parafraseada
-    4. **Si no existe**: Aplica paraphrasing lo devuelve y actualiza la descripción parafraseada
-    
-    ### 📋 Parámetros:
-    - `property_code`: Código único de la propiedad a consultar
-    
-    ### 🔍 Funcionamiento:
-    1. **Consulta la base de datos** para obtener `description` y `description_paraphrased`
-    2. **Si `description_paraphrased` existe**: La devuelve inmediatamente
-    3. **Si `description_paraphrased` es NULL**: 
-       - Aplica paraphrasing usando `PropertyQualityFilter.paraphrase_property_descriptions`
-       - Devuelve la descripción original y parafraseada al frontend
-       - Guarda la descripción parafraseada en la base de datos (background task)
-    
-    ### 📝 Ejemplo de uso:
-    ```json
-    {
-      "property_code": "12345"
-    }
-    ```
-    
-    ### 📊 Respuesta:
-    - `property_code`: Código de la propiedad consultada
-    - `description`: Descripción original de la propiedad
-    - `description_paraphrased`: Descripción parafraseada (si existe o se generó)
-    - `paraphrased`: Indica si se realizó paraphrasing en esta consulta
-    - `message`: Mensaje informativo sobre el procesamiento
-    """
-    try:
-        property_code = request.property_code.strip()
-        
-        if not property_code:
-            raise HTTPException(status_code=400, detail="property_code no puede estar vacío")
-        
-        logger.info(f"Getting description for property: {property_code}")
-        
-        # 1. Buscar la propiedad en la base de datos
-        property_data = await app.state.property_manager.get_property_by_code(property_code)
-        
-        if not property_data:
-            raise HTTPException(status_code=404, detail=f"Propiedad con código '{property_code}' no encontrada")
-        
-        # 2. Verificar si ya existe description_paraphrased
-        description_original = property_data.get('description', '')
-        description_paraphrased = property_data.get('description_paraphrased')
-        
-        if not description_original:
-            raise HTTPException(status_code=404, detail="La propiedad no tiene descripción")
-        
-        # 3. Si ya existe description_paraphrased, devolverla directamente
-        if description_paraphrased and description_paraphrased.strip():
-            logger.info(f"Property {property_code} already has paraphrased description")
-            return PropertyDescriptionResponse(
-                property_code=property_code,
-                description=description_original,
-                description_paraphrased=description_paraphrased,
-                paraphrased=False,
-                message="Descripción parafraseada ya existía en la base de datos"
-            )
-        
-        # 4. Si no existe, aplicar paraphrasing
-        logger.info(f"Property {property_code} needs paraphrasing, processing...")
-        
-        # Crear DataFrame con la propiedad para el paraphrasing
-        import pandas as pd
-        property_df = pd.DataFrame([{
-            'propertyCode': property_code,
-            'description': description_original,
-            'price': property_data.get('price'),
-            'priceByArea': property_data.get('pricebyarea'),
-            'thumbnail': property_data.get('thumbnail')
-        }])
-        
-        # Aplicar paraphrasing usando PropertyQualityFilter
-        paraphrased_df = app.state.quality_filter.paraphrase_property_descriptions(
-            property_df, 
-            max_concurrent=1
-        )
-        
-        # Obtener la descripción parafraseada
-        paraphrased_description = paraphrased_df.iloc[0]['description_paraphrased'] if not paraphrased_df.empty else description_original
-
-        async def _save_paraphrased_description(property_code: str, paraphrased_description: str):
-            """
-            Función auxiliar para guardar la descripción parafraseada en background
-            """
-            try:
-                logger.info(f"Saving paraphrased description for property {property_code}")
-
-                # Actualizar la propiedad con la descripción parafraseada
-                response = app.state.property_manager.supabase.table('properties') \
-                    .update({'description_paraphrased': paraphrased_description}) \
-                    .eq('propertycode', property_code) \
-                    .execute()
-
-                if response.data:
-                    logger.info(f"Successfully saved paraphrased description for property {property_code}")
-                else:
-                    logger.warning(f"No data returned when saving paraphrased description for property {property_code}")
-
-            except Exception as e:
-                logger.error(f"Error saving paraphrased description for property {property_code}: {str(e)}")
-        # 5. Guardar en background task
-        background_tasks.add_task(
-            _save_paraphrased_description,
-            property_code,
-            paraphrased_description
-        )
-        
-        logger.info(f"Property {property_code} paraphrased successfully")
-        
-        return PropertyDescriptionResponse(
-            property_code=property_code,
-            description=description_original,
-            description_paraphrased=paraphrased_description,
-            paraphrased=True,
-            message="Descripción parafraseada generada y guardada en background"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in get_property_description: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
-
-
-
 
 
 @app.get("/stats", tags=["General"])

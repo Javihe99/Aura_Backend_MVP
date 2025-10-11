@@ -3,11 +3,9 @@ Servicio para gestión de appointments en Supabase
 """
 
 import logging
-import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from supabase import create_client, Client
-from app.config import Config
+from app.services.supabase_helper import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +13,9 @@ class AppointmentManager:
     """Gestor de appointments en Supabase"""
     
     def __init__(self):
-        supabase_url = Config.SUPABASE_URL
-        supabase_key = Config.get_supabase_key()
-        
-        if not supabase_url or not supabase_key:
-            logger.error("Supabase credentials not found in environment variables")
+        self.supabase = get_supabase_client()
+        if not self.supabase:
             raise Exception("Supabase credentials not configured")
-            
-        self.supabase: Client = create_client(supabase_url, supabase_key)
     
     async def create_appointment(self, appointment_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -109,50 +102,7 @@ class AppointmentManager:
         except Exception as e:
             logger.error(f"Error obteniendo appointments para sesión {session_id}: {str(e)}")
             return []
-    
-    async def get_appointments_by_email(self, email: str) -> List[Dict[str, Any]]:
-        """
-        Obtiene todos los appointments de un email
-        
-        Args:
-            email: Email del cliente
-            
-        Returns:
-            Lista de appointments
-        """
-        try:
-            result = self.supabase.table("appointments").select("*").eq("email", email).order("created_at", desc=True).execute()
-            
-            return result.data if result.data else []
-            
-        except Exception as e:
-            logger.error(f"Error obteniendo appointments para email {email}: {str(e)}")
-            return []
-    
-    async def update_appointment(self, appointment_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Actualiza un appointment existente
-        
-        Args:
-            appointment_id: ID del appointment
-            update_data: Datos a actualizar
-            
-        Returns:
-            Datos del appointment actualizado o None si no existe
-        """
-        try:
-            result = self.supabase.table("appointments").update(update_data).eq("id", appointment_id).execute()
-            
-            if result.data and len(result.data) > 0:
-                appointment = result.data[0]
-                logger.info(f"Appointment actualizado exitosamente: {appointment_id}")
-                return appointment
-            else:
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error actualizando appointment {appointment_id}: {str(e)}")
-            return None
+
     
     async def delete_appointment(self, appointment_id: str) -> bool:
         """
@@ -194,26 +144,6 @@ class AppointmentManager:
             
         except Exception as e:
             logger.error(f"Error obteniendo appointments recientes: {str(e)}")
-            return []
-    
-    async def get_appointments_by_date_range(self, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
-        """
-        Obtiene appointments en un rango de fechas
-        
-        Args:
-            start_date: Fecha de inicio
-            end_date: Fecha de fin
-            
-        Returns:
-            Lista de appointments en el rango
-        """
-        try:
-            result = self.supabase.table("appointments").select("*").gte("appointment_time", start_date.isoformat()).lte("appointment_time", end_date.isoformat()).order("appointment_time").execute()
-            
-            return result.data if result.data else []
-            
-        except Exception as e:
-            logger.error(f"Error obteniendo appointments por rango de fechas: {str(e)}")
             return []
     
     def format_appointment_for_response(self, appointment: Dict[str, Any]) -> Dict[str, Any]:

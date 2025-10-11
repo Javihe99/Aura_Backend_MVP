@@ -1,6 +1,5 @@
 import logging
 from typing import List, Dict
-
 import settings
 from app.services.ai_parse import get_llm_result
 
@@ -81,39 +80,3 @@ class PropertySummarizer:
         except Exception as e:
             logger.error(f"Error in fallback summary: {e}")
             return f"Se encontraron {len(properties)} propiedades según tus criterios de búsqueda."
-
-    @staticmethod
-    async def generate_search_summary(search_params: Dict, total_found: int) -> str:
-        """Genera un resumen de los parámetros de búsqueda"""
-        try:
-            summary_parts = []
-
-            if search_params.get('locationName'):
-                summary_parts.append(f"Ubicación: {search_params['locationName']}")
-
-            if search_params.get('minPrice') or search_params.get('maxPrice'):
-                price_range = []
-                if search_params.get('minPrice'):
-                    price_range.append(f"desde {search_params['minPrice']:,.0f}€")
-                if search_params.get('maxPrice'):
-                    price_range.append(f"hasta {search_params['maxPrice']:,.0f}€")
-                summary_parts.append(f"Precio: {' '.join(price_range)}")
-
-            if search_params.get('rooms'):
-                summary_parts.append(f"Habitaciones: {search_params['rooms']}")
-
-            if search_params.get('size'):
-                summary_parts.append(f"Tamaño: {search_params['size']}m²")
-
-            summary = f"Búsqueda: {' | '.join(summary_parts)}. Total encontrado: {total_found} propiedades."
-            return summary
-
-        except Exception as e:
-            logger.error(f"Error generating search summary: {e}")
-            return f"Búsqueda completada. Se encontraron {total_found} propiedades."
-
-
-
-
-
-

@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 import settings
-from settings import LOCATION_VALIDATION_PROMPT
 from utils import LLMModel
 from utils import LLMVersion
 
@@ -57,7 +56,7 @@ def _validate_location_openai(location_name: str, model: str) -> dict:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": LOCATION_VALIDATION_PROMPT},
+                {"role": "system", "content": settings.LOCATION_VALIDATION_PROMPT},
                 {"role": "user", "content": full_prompt}
             ],
             temperature=0,
@@ -87,7 +86,7 @@ def _validate_location_gemini(location_name: str, model: str) -> dict:
         )
 
         full_prompt = f"""
-        {LOCATION_VALIDATION_PROMPT}
+        {settings.LOCATION_VALIDATION_PROMPT}
         
         Ubicación a validar: {location_name}
         """
@@ -197,93 +196,31 @@ def _get_gemini_result(prompt: str, model: str, system_instruction: str) -> dict
         raise
 
 
-def get_property_summary_llm(properties: list, search_params: dict, conversation_context: str = "") -> str:
-    """
-    Genera un resumen de propiedades usando LLM
-    
-    Args:
-        properties: Lista de propiedades encontradas
-        search_params: Parámetros de búsqueda utilizados
-        conversation_context: Contexto de la conversación previa
-        
-    Returns:
-        str: Resumen generado por el LLM
-    """
-    try:
-        if not properties:
-            return "No se encontraron propiedades que cumplan con los criterios especificados."
+def generate_search_suggestions(prompt_result: dict) -> str:
+    """Genera sugerencias para el usuario cuando no se encuentran propiedades"""
+    suggestions = []
 
-        # Preparar información de las 3 mejores propiedades
-        top_properties = properties[:3]
-        properties_info = []
+    # Sugerencias basadas en los parámetros de búsqueda
+    if prompt_result.get('maxPrice'):
+        suggestions.append(f"• Aumentar el presupuesto máximo (actual: {prompt_result['maxPrice']:,}€)")
 
-        for i, prop in enumerate(top_properties, 1):
-            info = f"Propiedad {i}: "
-            info += f"{prop.get('rooms', 'N/A')} hab, "
-            info += f"{prop.get('size', 'N/A')}m², "
-            info += f"{prop.get('price', 'N/A')}€"
+    if prompt_result.get('minRooms'):
+        suggestions.append(f"• Reducir el número mínimo de habitaciones (actual: {prompt_result['minRooms']})")
 
-            if prop.get('address'):
-                info += f", en {prop.get('address')}"
+    if prompt_result.get('minSize'):
+        suggestions.append(f"• Reducir los metros cuadrados mínimos (actual: {prompt_result['minSize']}m²)")
 
-            price_per_m2 = prop.get('priceByArea')
-            if price_per_m2:
-                info += f" ({price_per_m2:.0f}€/m²)"
+    if prompt_result.get('locationName'):
+        suggestions.append(f"• Ampliar la zona de búsqueda alrededor de {prompt_result['locationName']}")
 
-            properties_info.append(info)
+    # Sugerencias generales
+    suggestions.extend([
+        "• Considerar propiedades en zonas cercanas",
+        "• Revisar si hay propiedades similares con características ligeramente diferentes",
+        "• Contactar con un agente inmobiliario para búsquedas personalizadas"
+    ])
 
-        # Crear prompt para el resumen
-        prompt = f"""
-        Contexto de conversación:
-        {conversation_context}
-        
-        Se encontraron {len(properties)} propiedades. Las 3 más relevantes son:
-        {'. '.join(properties_info)}
-        
-        Genera un resumen conciso (máximo 3 líneas) destacando:
-        1. Número total de propiedades encontradas
-        2. Rango de precios
-        3. Características destacadas de las mejores opciones
-        
-        Responde en formato JSON con la clave "summary".
-        """
-
-        result = get_llm_result(prompt)
-        return result.get('summary', 'Se encontraron propiedades interesantes según tus criterios.')
-
-    except Exception as e:
-        logging.error(f"Error generating property summary: {e}")
-        # Fallback manual si falla el LLM
-        return _generate_fallback_summary(properties, top_properties)
-
-
-def _generate_fallback_summary(properties: list, top_properties: list) -> str:
-    """Genera un resumen de fallback si falla el LLM"""
-    if not top_properties:
-        return f"Se encontraron {len(properties)} propiedades."
-
-    try:
-        # Calcular rango de precios
-        prices = [p.get('price', 0) for p in top_properties if p.get('price')]
-        min_price = min(prices) if prices else 0
-        max_price = max(prices) if prices else 0
-
-        # Obtener características destacadas
-        rooms = [p.get('rooms') for p in top_properties if p.get('rooms')]
-        avg_rooms = sum(rooms) / len(rooms) if rooms else 0
-
-        summary = f"Se encontraron {len(properties)} propiedades. "
-        if min_price > 0 and max_price > 0:
-            summary += f"Las mejores opciones tienen entre {min_price:,.0f}€ y {max_price:,.0f}€. "
-
-        if avg_rooms > 0:
-            summary += f"Promedio de {avg_rooms:.1f} habitaciones en las mejores opciones."
-
-        return summary
-
-    except Exception as e:
-        logging.error(f"Error in fallback summary: {e}")
-        return f"Se encontraron {len(properties)} propiedades según tus criterios de búsqueda."
+    return "Te sugiero:\n" + "\n".join(suggestions[:4])  # Limitar a 4 sugerencias
 
 
 if __name__ == "__main__":
@@ -304,8 +241,5 @@ if __name__ == "__main__":
         print(json.dumps(data_gemini, ensure_ascii=False, indent=2))
     except Exception as e:
         print(f"Error con Gemini: {e}")
-
-
-
 
 

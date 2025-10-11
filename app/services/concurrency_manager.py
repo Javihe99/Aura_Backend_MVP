@@ -113,20 +113,6 @@ class AsyncTaskManager:
         self.tasks: Dict[str, asyncio.Task] = {}
         self.max_concurrent_tasks = 10
     
-    async def add_task(self, task_id: str, coro, background: bool = True):
-        """Añade una nueva tarea"""
-        if len(self.tasks) >= self.max_concurrent_tasks:
-            # Cancelar la tarea más antigua si es necesario
-            oldest_task_id = min(self.tasks.keys(), key=lambda k: self.tasks[k].created_at)
-            await self.cancel_task(oldest_task_id)
-        
-        if background:
-            task = asyncio.create_task(coro)
-            task.created_at = datetime.now()
-            self.tasks[task_id] = task
-        else:
-            return await coro
-    
     async def cancel_task(self, task_id: str):
         """Cancela una tarea específica"""
         if task_id in self.tasks:
@@ -139,40 +125,25 @@ class AsyncTaskManager:
                     pass
             del self.tasks[task_id]
     
-    async def wait_for_task(self, task_id: str, timeout: float = 30.0):
-        """Espera a que una tarea se complete"""
-        if task_id not in self.tasks:
-            raise ValueError(f"Task {task_id} not found")
+    async def add_task(self, task_id: str, coro):
+        """Añade una nueva tarea"""
+        if len(self.tasks) >= self.max_concurrent_tasks:
+            # Cancelar la tarea más antigua si se excede el límite
+            oldest_task_id = min(self.tasks.keys(), key=lambda k: self.tasks[k].created_at if hasattr(self.tasks[k], 'created_at') else 0)
+            await self.cancel_task(oldest_task_id)
         
-        try:
-            await asyncio.wait_for(self.tasks[task_id], timeout=timeout)
-            result = self.tasks[task_id].result()
-            del self.tasks[task_id]
-            return result
-        except asyncio.TimeoutError:
-            await self.cancel_task(task_id)
-            raise HTTPException(status_code=408, detail="Task timeout")
+        task = asyncio.create_task(coro)
+        self.tasks[task_id] = task
+        return task
     
-    def get_task_status(self, task_id: str) -> Dict:
-        """Obtiene el estado de una tarea"""
-        if task_id not in self.tasks:
-            return {"status": "not_found"}
-        
-        task = self.tasks[task_id]
-        return {
-            "status": "running" if not task.done() else "completed",
-            "created_at": task.created_at.isoformat() if hasattr(task, 'created_at') else None,
-            "done": task.done(),
-            "cancelled": task.cancelled()
-        }
-
-
-
-
-
-
-
-
-
+    async def get_task_result(self, task_id: str):
+        """Obtiene el resultado de una tarea"""
+        if task_id in self.tasks:
+            task = self.tasks[task_id]
+            if task.done():
+                result = task.result()
+                del self.tasks[task_id]
+                return result
+        return None
 
 

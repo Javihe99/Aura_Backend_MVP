@@ -1,11 +1,10 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from supabase import create_client, Client
-import os
 import pandas as pd
 import numpy as np
-from app.config import Config
+import asyncio
+from app.services.supabase_helper import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -14,18 +13,49 @@ class PropertyManager:
     """Gestor de propiedades usando Supabase"""
     
     def __init__(self):
-        self.supabase = self._init_supabase()
-        
-    def _init_supabase(self) -> Client:
-        """Inicializa la conexión con Supabase"""
-        supabase_url = Config.SUPABASE_URL
-        supabase_key = Config.get_supabase_key()
-        
-        if not supabase_url or not supabase_key:
-            logger.error("Supabase credentials not found in environment variables")
+        self.supabase = get_supabase_client()
+        if not self.supabase:
             raise Exception("Supabase credentials not configured")
-            
-        return create_client(supabase_url, supabase_key)
+        # Caché simple para propiedades por sesión
+        self._session_cache = {}
+        self._cache_ttl = timedelta(minutes=5)  # TTL de 5 minutos
+    
+    def _get_cache_key(self, session_id: str, limit: int) -> str:
+        """Genera clave de caché para sesión y límite"""
+        return f"{session_id}:{limit}"
+    
+    def _is_cache_valid(self, cache_entry: Dict) -> bool:
+        """Verifica si una entrada de caché es válida"""
+        if not cache_entry:
+            return False
+        cache_time = cache_entry.get('timestamp')
+        if not cache_time:
+            return False
+        return datetime.now() - cache_time < self._cache_ttl
+    
+    def _get_from_cache(self, session_id: str, limit: int) -> Optional[List[Dict]]:
+        """Obtiene datos del caché si son válidos"""
+        cache_key = self._get_cache_key(session_id, limit)
+        cache_entry = self._session_cache.get(cache_key)
+        
+        if self._is_cache_valid(cache_entry):
+            logger.info(f"Cache hit for session {session_id} with limit {limit}")
+            return cache_entry.get('data')
+        
+        # Limpiar entrada expirada
+        if cache_key in self._session_cache:
+            del self._session_cache[cache_key]
+        
+        return None
+    
+    def _set_cache(self, session_id: str, limit: int, data: List[Dict]) -> None:
+        """Guarda datos en el caché"""
+        cache_key = self._get_cache_key(session_id, limit)
+        self._session_cache[cache_key] = {
+            'data': data,
+            'timestamp': datetime.now()
+        }
+        logger.info(f"Cached {len(data)} properties for session {session_id}")
     
     def _extract_nested_data(self, prop: Dict, prefix: str) -> Dict:
         """Extrae datos anidados con un prefijo específico"""
@@ -228,27 +258,66 @@ class PropertyManager:
             property_codes = df['propertyCode'].unique().tolist()
             logger.info(f"Processing {len(property_codes)} unique property codes: {property_codes}")
             
-            # Eliminar propiedades existentes con estos propertycodes (operación vectorizada)
-            if property_codes:
-                logger.info(f"Deleting existing properties with codes: {property_codes}")
-                delete_response = self.supabase.table('properties').delete().in_('propertycode', property_codes).execute()
-                logger.info(f"Delete response: {delete_response}")
-            
-            # Preparar datos para inserción usando pandas
-            logger.info("Preparing properties dataframe for insertion...")
+            # Preparar datos para upsert usando pandas
+            logger.info("Preparing properties dataframe for upsert...")
             df_processed = self._prepare_properties_dataframe(df)
             logger.info(f"Processed DataFrame shape: {df_processed.shape}")
             
-            # Convertir DataFrame a lista de diccionarios para inserción
+            # Convertir DataFrame a lista de diccionarios para upsert
             properties_data = df_processed.to_dict('records')
-            logger.info(f"Converted to {len(properties_data)} records for insertion")
+            logger.info(f"Converted to {len(properties_data)} records for upsert")
             
-            # Insertar todas las propiedades de una vez (más eficiente)
+            # Usar upsert para actualizar o insertar propiedades
             if properties_data:
-                logger.info(f"Inserting {len(properties_data)} properties to database...")
-                insert_response = self.supabase.table('properties').insert(properties_data).execute()
-                logger.info(f"Insert response: {insert_response}")
-                logger.info(f"Successfully inserted {len(properties_data)} new properties to database")
+                logger.info(f"Upserting {len(properties_data)} properties to database...")
+                try:
+                    # Especificar que el conflicto se resuelve por propertycode y reemplazar completamente
+                    upsert_response = self.supabase.table('properties').upsert(
+                        properties_data, 
+                        on_conflict='propertycode',
+                        ignore_duplicates=False
+                    ).execute()
+                    logger.info(f"Upsert response: {upsert_response}")
+                    logger.info(f"Successfully replaced/inserted {len(properties_data)} properties to database")
+                except Exception as upsert_error:
+                    logger.error(f"Error during upsert operation: {upsert_error}")
+                    # Si el upsert falla, intentar reemplazar propiedades existentes y insertar nuevas
+                    logger.info("Attempting to replace existing properties and insert new ones...")
+                    try:
+                        # Obtener propertycodes existentes
+                        existing_codes = set()
+                        for prop in properties_data:
+                            code = prop.get('propertycode')
+                            if code:
+                                existing_response = self.supabase.table('properties')\
+                                    .select('propertycode')\
+                                    .eq('propertycode', code)\
+                                    .execute()
+                                if existing_response.data:
+                                    existing_codes.add(code)
+                        
+                        # Separar propiedades existentes y nuevas
+                        existing_properties = [prop for prop in properties_data 
+                                             if prop.get('propertycode') in existing_codes]
+                        new_properties = [prop for prop in properties_data 
+                                        if prop.get('propertycode') not in existing_codes]
+                        
+                        # Eliminar propiedades existentes y luego insertar todas
+                        if existing_codes:
+                            delete_response = self.supabase.table('properties')\
+                                .delete()\
+                                .in_('propertycode', list(existing_codes))\
+                                .execute()
+                            logger.info(f"Deleted {len(existing_codes)} existing properties")
+                        
+                        # Insertar todas las propiedades (existentes reemplazadas + nuevas)
+                        if properties_data:
+                            insert_response = self.supabase.table('properties').insert(properties_data).execute()
+                            logger.info(f"Successfully replaced/inserted {len(properties_data)} properties")
+                            
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback replacement also failed: {fallback_error}")
+                        raise upsert_error
             
             return True
             
@@ -258,42 +327,63 @@ class PropertyManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
     
-    async def get_properties_by_session(self, session_id: str) -> List[Dict]:
-        """Obtiene propiedades relacionadas con una sesión específica"""
+    async def get_properties_by_session(self, session_id: str, limit: int = 50) -> List[Dict]:
+        """Obtiene propiedades relacionadas con una sesión específica de forma ultra-eficiente"""
+        
+        # OPTIMIZACIÓN 0: Verificar caché primero
+        cached_data = self._get_from_cache(session_id, limit)
+        if cached_data is not None:
+            return cached_data
             
         try:
-            # Buscar conversaciones de la sesión que tengan property_list en metadata
+            # OPTIMIZACIÓN 1: Método más simple y eficiente usando consulta directa
+            # Usar una consulta más simple que funcione mejor con Supabase
             response = self.supabase.table('conversations')\
-                .select('metadata')\
+                .select('metadata->property_list')\
                 .eq('session_id', session_id)\
                 .not_.is_('metadata->property_list', 'null')\
+                .order('created_at', desc=True)\
+                .limit(limit * 2)\
                 .execute()
             
             if not response.data:
+                self._set_cache(session_id, limit, [])
                 return []
             
-            # Extraer todos los propertyCodes de las conversaciones
+            # OPTIMIZACIÓN 2: Procesamiento ultra-eficiente
             property_codes = set()
             for conv in response.data:
-                metadata = conv.get('metadata', {})
-                property_list = metadata.get('property_list', [])
-                if isinstance(property_list, list):
+                property_list = conv.get('metadata', {}).get('property_list', [])
+                if isinstance(property_list, list) and property_list:
                     property_codes.update(property_list)
+                    if len(property_codes) >= limit:
+                        break
             
             if not property_codes:
+                self._set_cache(session_id, limit, [])
                 return []
             
-            # Obtener propiedades por propertycode
+            # OPTIMIZACIÓN 3: Consulta optimizada con solo campos esenciales
+            property_codes_list = list(property_codes)[:limit]
+            
             properties_response = self.supabase.table('properties')\
-                .select('*')\
-                .in_('propertycode', list(property_codes))\
+                .select('propertycode, price, size, rooms, bathrooms, address, latitude, longitude, thumbnail, created_at')\
+                .in_('propertycode', property_codes_list)\
+                .order('created_at', desc=True)\
+                .limit(limit)\
                 .execute()
             
-            return properties_response.data if properties_response.data else []
+            result = properties_response.data if properties_response.data else []
+            
+            # Guardar en caché
+            self._set_cache(session_id, limit, result)
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error getting properties by session: {e}")
             return []
+    
     
     async def get_property_by_code(self, property_code: str) -> Optional[Dict]:
         """Obtiene una propiedad específica por su código"""

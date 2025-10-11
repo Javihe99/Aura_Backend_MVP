@@ -28,12 +28,10 @@ class PropertyQualityFilter:
             # Normalizar precio por m² (asumiendo rango 1000-10000 €/m²)
             normalized_price = 1 - min(price_per_m2 / 10000, 1)
             score += normalized_price * 0.3
-        
-        # Fotos disponibles
+
         has_photos = property_data.get('thumbnail') is not None
         score += 0.15 if has_photos else 0
-        
-        # Descripción completa
+
         description = property_data.get('description', '') or ''
         if len(description) > 100:
             score += 0.1
@@ -246,29 +244,3 @@ class PropertyQualityFilter:
         except Exception as e:
             logger.error(f"Error processing chunk: {e}")
             return chunk_df
-
-    def filter_and_rank_properties_with_paraphrase(self, properties_df: pd.DataFrame, top_n: int = 50, paraphrase_descriptions: bool = True, max_concurrent: int = 5) -> pd.DataFrame:
-        """
-        Filtra, rankea y parafrasea propiedades por calidad
-        
-        Args:
-            properties_df: DataFrame con las propiedades
-            top_n: Número máximo de propiedades a devolver
-            paraphrase_descriptions: Si parafrasear las descripciones
-            max_concurrent: Número máximo de tareas concurrentes para paraphraseo
-            
-        Returns:
-            pd.DataFrame: DataFrame filtrado, rankeado y parafraseado
-        """
-        # Primero aplicar filtro de calidad
-        filtered_df = self.filter_and_rank_properties(properties_df, top_n)
-        
-        # Si se solicita paraphraseo y hay propiedades
-        if paraphrase_descriptions and not filtered_df.empty:
-            logger.info("Applying paraphrase to filtered properties...")
-            paraphrased_df = self.paraphrase_property_descriptions(
-                filtered_df, max_concurrent=max_concurrent
-            )
-            return paraphrased_df
-        
-        return filtered_df

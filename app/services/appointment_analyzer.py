@@ -8,6 +8,8 @@ import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from openai import AsyncOpenAI
+
+import settings
 from app.config import Config
 from utils import LLMModel, LLMVersion
 
@@ -38,7 +40,7 @@ class AppointmentAnalyzer:
             # Llamar al LLM de forma asíncrona
             analysis_result = await self._get_async_llm_result(
                 prompt=analysis_prompt,
-                system_instruction=self._get_analysis_system_instruction()
+                system_instruction=settings.APPOINTMENT_ANALYSIS_INSTRUCTIONS
             )
             
             # Procesar y validar resultado
@@ -97,107 +99,6 @@ class AppointmentAnalyzer:
             logging.error(f"Error en llamada asíncrona a OpenAI: {str(e)}")
             raise
     
-    def _get_analysis_system_instruction(self) -> str:
-        """Retorna las instrucciones del sistema para el análisis de conversaciones"""
-        return """
-Eres un experto analista de conversaciones inmobiliarias. Tu tarea es analizar el historial de conversación de un cliente y extraer TODA la información relevante para que el equipo de ventas tenga un contexto completo.
-
-IMPORTANTE: 
-- USER = Cliente (lo que dice el cliente)
-- ASSISTANT = Asistente inmobiliario (respuestas del sistema)
-- SOLO analiza lo que dice el CLIENTE (USER), ignora las respuestas del asistente
-- NO uses presupuestos, precios o información que mencione el ASSISTANT
-- EXTRAE TODOS los detalles específicos mencionados por el cliente
-- CAPTURA frases exactas o palabras clave importantes del cliente
-
-INSTRUCCIONES DETALLADAS:
-Analiza cuidadosamente SOLO los mensajes del CLIENTE (USER) y extrae la siguiente información:
-
-1. PRESUPUESTO (solo del cliente):
-   - Presupuesto mínimo mencionado por el CLIENTE (budget_min)
-   - Presupuesto máximo mencionado por el CLIENTE (budget_max)
-   - Si el cliente menciona rangos como "entre X e Y", extrae ambos valores
-   - Si el cliente solo menciona "máximo X" o "hasta X", usa ese como budget_max
-   - Si el cliente solo menciona "mínimo X" o "desde X", usa ese como budget_min
-   - IGNORA cualquier precio o presupuesto mencionado por el ASSISTANT
-
-2. UBICACIÓN (solo del cliente):
-   - Localización específica mencionada por el CLIENTE (ciudad, barrio, zona, dirección)
-   - Preferencias de ubicación expresadas por el CLIENTE
-   - Cualquier descripción de la zona (segura, tranquila, céntrica, etc.)
-
-3. CARACTERÍSTICAS FÍSICAS (solo del cliente):
-   - Tipo de propiedad mencionado por el CLIENTE (piso, casa, apartamento, etc.)
-   - Número de habitaciones solicitado por el CLIENTE
-   - Número de baños mencionado por el CLIENTE
-   - Metros cuadrados mencionados por el CLIENTE (min_size, max_size)
-   - Planta o piso mencionado por el CLIENTE
-
-4. CARACTERÍSTICAS ESPECIALES (solo del cliente):
-   - Garaje, parking, plaza de garaje
-   - Terraza, balcón, azotea
-   - Jardín, patio, exterior
-   - Ascensor, elevador
-   - Aire acondicionado, climatización
-   - Piscina, gimnasio, spa
-   - Lujo, de lujo, premium
-   - Reformado, nuevo, a estrenar
-   - Amueblado, sin amueblar
-
-5. PREFERENCIAS DE CALIDAD/ESTADO (solo del cliente):
-   - Palabras como: seguro, segura, tranquilo, tranquila
-   - Prometido, prometedor, con futuro
-   - Nuevo, reformado, moderno, clásico
-   - Bien comunicado, cerca del metro, transporte
-   - Zona residencial, comercial, mixta
-
-6. FINANCIACIÓN (solo del cliente):
-   - Si el CLIENTE menciona necesidad de financiación, hipoteca, préstamo
-   - Si el CLIENTE pregunta sobre opciones de pago
-   - Si el CLIENTE menciona ser primera vivienda (puede necesitar financiación)
-   - Entrada, enganche, capital inicial mencionado
-
-7. CONTEXTO PERSONAL (solo del cliente):
-   - Situación familiar mencionada por el CLIENTE (pareja, hijos, etc.)
-   - Motivo de compra expresado por el CLIENTE (primera vivienda, inversión, etc.)
-   - Urgencia o timeline mencionado por el CLIENTE
-   - Trabajo, oficina, desplazamiento mencionado
-
-8. INFORMACIÓN ADICIONAL (solo del cliente):
-   - Cualquier detalle específico, preferencia o requisito mencionado
-   - Frases exactas importantes del cliente
-   - Aspectos que el cliente enfatiza o repite
-
-FORMATO DE RESPUESTA (JSON):
-{
-    "budget_min": null o número entero,
-    "budget_max": null o número entero,
-    "location": "ubicación mencionada o inferida",
-    "location_description": "descripción de la zona (segura, tranquila, etc.)",
-    "property_type": "tipo de propiedad mencionado",
-    "bedrooms": null o número,
-    "bathrooms": null o número,
-    "min_size": null o número (metros cuadrados),
-    "max_size": null o número (metros cuadrados),
-    "floor": "planta o piso mencionado",
-    "special_features": ["lista", "de", "características"],
-    "quality_preferences": ["seguro", "prometido", "nuevo", "etc"],
-    "personal_context": "contexto personal relevante",
-    "urgency": "alta/media/baja",
-    "additional_requirements": "cualquier requisito adicional específico",
-    "client_quotes": ["frases", "exactas", "importantes", "del", "cliente"],
-    "preferences_summary": "resumen detallado de todas las preferencias"
-}
-
-IMPORTANTE:
-- Si no se menciona algo específico, usa null para números y "" para strings
-- CAPTURA TODOS los detalles específicos mencionados
-- Incluye frases exactas importantes del cliente en client_quotes
-- Para quality_preferences, incluye palabras como "seguro", "prometido", "tranquilo", etc.
-- Sé exhaustivo en la extracción de información
-- El preferences_summary debe ser muy detallado para el equipo de ventas
-"""
-    
     def _create_analysis_prompt(self, formatted_history: str, user_ip: str = None) -> str:
         """Crea el prompt para el análisis del LLM"""
         
@@ -206,12 +107,12 @@ IMPORTANTE:
             ip_context = f"\n\nIP del usuario: {user_ip} (puede ayudar a determinar ubicación geográfica)"
         
         return f"""
-HISTORIAL DE CONVERSACIÓN:
-{formatted_history}
-{ip_context}
-
-Analiza este historial de conversación y extrae la información relevante según las instrucciones del sistema.
-"""
+                HISTORIAL DE CONVERSACIÓN:
+                {formatted_history}
+                {ip_context}
+                
+                Analiza este historial de conversación y extrae la información relevante según las instrucciones del sistema.
+            """
     
     def _process_analysis_result(self, llm_response: Dict[str, Any]) -> Dict[str, Any]:
         """Procesa y valida el resultado del LLM"""
@@ -304,40 +205,9 @@ Analiza este historial de conversación y extrae la información relevante segú
             "preferences_summary": None
         }
     
-    async def get_user_location_from_ip(self, ip_address: str) -> Optional[str]:
-        """
-        Obtiene la ubicación del usuario basada en su IP
-        
-        Args:
-            ip_address: Dirección IP del usuario
-            
-        Returns:
-            Ubicación detectada o None si no se puede determinar
-        """
-        try:
-            # Para IPs locales o de desarrollo, retornar None
-            if ip_address in ['127.0.0.1', 'localhost', '::1'] or ip_address.startswith('192.168.') or ip_address.startswith('10.'):
-                return None
-            
-            # Aquí podrías integrar un servicio de geolocalización por IP
-            # Por ahora, retornamos None para evitar llamadas externas innecesarias
-            logger.info(f"IP detectada: {ip_address} (geolocalización no implementada)")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error obteniendo ubicación por IP: {str(e)}")
-            return None
-    
     def create_conversation_summary(self, conversation_history: List[Dict[str, Any]], analysis_data: Dict[str, Any]) -> str:
         """
         Crea un resumen detallado de la conversación para el email del equipo de ventas
-        
-        Args:
-            conversation_history: Historial de conversación
-            analysis_data: Datos extraídos del análisis
-            
-        Returns:
-            Resumen detallado formateado de la conversación
         """
         try:
             # Contar mensajes
@@ -424,40 +294,3 @@ Analiza este historial de conversación y extrae la información relevante segú
         except Exception as e:
             logger.error(f"Error creando resumen de conversación: {str(e)}")
             return f"Cliente ha tenido {len(conversation_history)} mensajes en la conversación."
-    
-    def combine_with_metadata(self, analysis_data: Dict[str, Any], conversation_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Combina la información extraída del análisis con los metadatos de la conversación
-        
-        Args:
-            analysis_data: Datos extraídos del análisis de conversación
-            conversation_metadata: Metadatos adicionales de la conversación
-            
-        Returns:
-            Diccionario combinado con toda la información relevante
-        """
-        try:
-            combined_data = analysis_data.copy()
-            
-            if conversation_metadata:
-                # Agregar metadatos relevantes
-                if 'search_params' in conversation_metadata:
-                    search_params = conversation_metadata['search_params']
-                    
-                    # Si hay parámetros de búsqueda, agregarlos como información adicional
-                    if 'intent' in search_params:
-                        combined_data['search_intent'] = search_params['intent']
-                    
-                    if 'classification' in search_params:
-                        combined_data['intent_classification'] = search_params['classification']
-                
-                # Agregar otros metadatos relevantes
-                for key, value in conversation_metadata.items():
-                    if key not in ['search_params'] and value is not None:
-                        combined_data[f'metadata_{key}'] = value
-            
-            return combined_data
-            
-        except Exception as e:
-            logger.error(f"Error combinando con metadatos: {str(e)}")
-            return analysis_data
