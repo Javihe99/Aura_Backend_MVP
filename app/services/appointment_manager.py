@@ -28,7 +28,6 @@ class AppointmentManager:
             Datos del appointment creado
         """
         try:
-            # Preparar datos para inserción
             insert_data = {
                 "session_id": appointment_data.get("session_id"),
                 "appointment_time": appointment_data.get("appointment_time"),
@@ -48,7 +47,6 @@ class AppointmentManager:
                 "conversation_summary": appointment_data.get("conversation_summary")
             }
             
-            # Insertar en la base de datos
             result = self.supabase.table("appointments").insert(insert_data).execute()
             
             if result.data and len(result.data) > 0:

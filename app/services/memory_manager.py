@@ -39,8 +39,8 @@ class ConversationMemory:
             return ""
         
         formatted = "Historial de conversación:\n"
-        for msg in history[-self.max_history:]:  # Últimos X mensajes
-            formatted += f"{msg.get('role', 'user')}: {msg.get('content', '')[-200:]}\n" #Si hay mucho texto, solo se queda con los últimos 200 caracteres
+        for msg in history[-self.max_history:]:
+            formatted += f"{msg.get('role', 'user')}: {msg.get('content', '')[-200:]}\n"
         
         return formatted
 

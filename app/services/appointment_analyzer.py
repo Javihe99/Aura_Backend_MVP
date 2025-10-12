@@ -33,17 +33,14 @@ class AppointmentAnalyzer:
             Dict con información extraída: budget_min, budget_max, location, financing, metadata
         """
         try:
-            # Formatear historial y crear prompt
             formatted_history = self._format_history_for_analysis(conversation_history)
             analysis_prompt = self._create_analysis_prompt(formatted_history, user_ip)
             
-            # Llamar al LLM de forma asíncrona
             analysis_result = await self._get_async_llm_result(
                 prompt=analysis_prompt,
                 system_instruction=settings.APPOINTMENT_ANALYSIS_INSTRUCTIONS
             )
             
-            # Procesar y validar resultado
             processed_result = self._process_analysis_result(analysis_result)
             
             logger.info(f"Análisis de conversación completado: {processed_result}")
@@ -63,7 +60,6 @@ class AppointmentAnalyzer:
             timestamp = message.get('created_at', '')
             
             if role in ['user', 'assistant']:
-                # Hacer más claro quién es quién
                 if role == 'user':
                     formatted_messages.append(f"CLIENTE: {content}")
                 elif role == 'assistant':
@@ -74,7 +70,6 @@ class AppointmentAnalyzer:
     async def _get_async_llm_result(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
         """Obtiene respuesta del LLM de forma asíncrona"""
         try:
-            # FIXED: Add "json" to the user message to comply with OpenAI requirements
             full_prompt = f"""
             Usuario: {prompt}
 
@@ -117,10 +112,7 @@ class AppointmentAnalyzer:
     def _process_analysis_result(self, llm_response: Dict[str, Any]) -> Dict[str, Any]:
         """Procesa y valida el resultado del LLM"""
         try:
-            # get_llm_result ya retorna un diccionario parseado
             analysis_data = llm_response
-            
-            # Validar y limpiar datos
             processed_data = {
                 "budget_min": self._safe_int(analysis_data.get("budget_min")),
                 "budget_max": self._safe_int(analysis_data.get("budget_max")),
@@ -162,7 +154,6 @@ class AppointmentAnalyzer:
         if value is None:
             return None
         try:
-            # Si es una lista, convertir a string separado por comas
             if isinstance(value, list):
                 return ', '.join(str(item) for item in value) or None
             return str(value).strip() or None
@@ -210,33 +201,27 @@ class AppointmentAnalyzer:
         Crea un resumen detallado de la conversación para el email del equipo de ventas
         """
         try:
-            # Contar mensajes
             user_messages = [msg for msg in conversation_history if msg.get('role') == 'user']
             assistant_messages = [msg for msg in conversation_history if msg.get('role') == 'assistant']
             
-            # Crear resumen detallado
             summary_parts = []
             
-            # Información básica
-            summary_parts.append(f"📞 Cliente ha tenido {len(user_messages)} consultas en la conversación.")
+            summary_parts.append(f"Cliente ha tenido {len(user_messages)} consultas en la conversación.")
             
-            # Presupuesto
             if analysis_data.get('budget_min') or analysis_data.get('budget_max'):
                 budget_info = []
                 if analysis_data.get('budget_min'):
                     budget_info.append(f"mínimo {analysis_data['budget_min']:,}€")
                 if analysis_data.get('budget_max'):
                     budget_info.append(f"máximo {analysis_data['budget_max']:,}€")
-                summary_parts.append(f"💰 Presupuesto: {' - '.join(budget_info)}")
+                summary_parts.append(f"Presupuesto: {' - '.join(budget_info)}")
             
-            # Ubicación
             if analysis_data.get('location'):
-                location_info = f"📍 Ubicación: {analysis_data['location']}"
+                location_info = f"Ubicación: {analysis_data['location']}"
                 if analysis_data.get('location_description'):
                     location_info += f" ({analysis_data['location_description']})"
                 summary_parts.append(location_info)
             
-            # Tipo de propiedad y características físicas
             property_info = []
             if analysis_data.get('property_type'):
                 property_info.append(analysis_data['property_type'])
@@ -255,39 +240,31 @@ class AppointmentAnalyzer:
                 property_info.append(f"Planta: {analysis_data['floor']}")
             
             if property_info:
-                summary_parts.append(f"🏠 Propiedad: {', '.join(property_info)}")
+                summary_parts.append(f"Propiedad: {', '.join(property_info)}")
             
-            # Características especiales
             if analysis_data.get('special_features'):
                 features = ', '.join(analysis_data['special_features'])
-                summary_parts.append(f"✨ Características: {features}")
+                summary_parts.append(f"Características: {features}")
             
-            # Preferencias de calidad
             if analysis_data.get('quality_preferences'):
                 quality = ', '.join(analysis_data['quality_preferences'])
-                summary_parts.append(f"⭐ Preferencias de calidad: {quality}")
+                summary_parts.append(f"Preferencias de calidad: {quality}")
             
-            # Contexto personal
             if analysis_data.get('personal_context'):
-                summary_parts.append(f"👤 Contexto personal: {analysis_data['personal_context']}")
+                summary_parts.append(f"Contexto personal: {analysis_data['personal_context']}")
             
-            # Requisitos adicionales
             if analysis_data.get('additional_requirements'):
-                summary_parts.append(f"📋 Requisitos adicionales: {analysis_data['additional_requirements']}")
+                summary_parts.append(f"Requisitos adicionales: {analysis_data['additional_requirements']}")
             
-            # Urgencia
             if analysis_data.get('urgency') and analysis_data['urgency'] != 'media':
-                urgency_emoji = {"alta": "🚨", "baja": "⏰"}.get(analysis_data['urgency'], "⏱️")
-                summary_parts.append(f"{urgency_emoji} Urgencia: {analysis_data['urgency']}")
+                summary_parts.append(f"Urgencia: {analysis_data['urgency']}")
             
-            # Frases importantes del cliente
             if analysis_data.get('client_quotes'):
-                quotes = ' | '.join([f'"{quote}"' for quote in analysis_data['client_quotes'][:3]])  # Máximo 3 frases
-                summary_parts.append(f"💬 Frases del cliente: {quotes}")
+                quotes = ' | '.join([f'"{quote}"' for quote in analysis_data['client_quotes'][:3]])
+                summary_parts.append(f"Frases del cliente: {quotes}")
             
-            # Resumen detallado si está disponible
             if analysis_data.get('preferences_summary'):
-                summary_parts.append(f"📝 Resumen detallado: {analysis_data['preferences_summary']}")
+                summary_parts.append(f"Resumen detallado: {analysis_data['preferences_summary']}")
             
             return " | ".join(summary_parts)
             

@@ -16,13 +16,11 @@ NUM_BATHROOMS = [1, 2, 3]
 
 
 async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
-    """Obtiene propiedades de Idealista usando los parámetros proporcionados de forma ultra-optimizada"""
+    """Obtiene propiedades de Idealista usando los parámetros proporcionados"""
     
-    # Usar nombre de variable no reservada
     idealista_client = IdealistaHook()
     idealista_client.update_token()
     
-    # Ejecutar en thread pool para evitar bloqueo
     def _search_wrapper():
         return idealista_client.search_properties_by_coordinates(**prompt_result)
     
@@ -33,42 +31,29 @@ async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
     if status is False:
         raise ValueError(records)
 
-    # Verificar si hay propiedades encontradas
     if not records.get('elementList') or len(records['elementList']) == 0:
         logger.warning("No se encontraron propiedades con los parámetros especificados")
-        # Crear DataFrame vacío con las columnas esperadas
         empty_df = pd.DataFrame(columns=['propertyCode', 'labels', 'priceByArea'])
         empty_df = empty_df.replace({np.nan: None})
         records_copy = records.copy()
         records_copy.pop('elementList', None)
         return empty_df, records_copy
 
-    # OPTIMIZACIÓN CRÍTICA: Procesamiento ultra-rápido
     df = pd.DataFrame(records['elementList'])
-    
-    # Mantener todos los campos originales de Idealista
-
-    # Procesamiento completo de labels como originalmente
     if 'labels' in df.columns:
-        # Usar operaciones vectorizadas en lugar de apply
         df['additional_info_tag'] = None
         df['additional_info_name'] = None
         
-        # Procesar solo filas que tienen labels válidos
         valid_labels_mask = df['labels'].notna() & df['labels'].apply(lambda x: isinstance(x, list) and len(x) > 0)
         if valid_labels_mask.any():
             valid_labels = df.loc[valid_labels_mask, 'labels']
             df.loc[valid_labels_mask, 'additional_info_tag'] = valid_labels.apply(lambda x: x[0].get('name') if x else None)
             df.loc[valid_labels_mask, 'additional_info_name'] = valid_labels.apply(lambda x: x[0].get('text') if x else None)
     else:
-        # Si no hay columna labels, crear columnas vacías
         df['additional_info_tag'] = None
         df['additional_info_name'] = None
 
-    # Ordenamiento original con status_sort
     sort_parse = {
-        # Defecto es 0
-        # Otros estados = 1
         "Alquilada": 2,
         "Nuda propiedad": 3,
         "Ocupada ilegalmente": 4,
@@ -81,7 +66,6 @@ async def get_idealista_properties(prompt_result: dict) -> (pd.DataFrame, dict):
     logger.info(f"Se han encontrado un total de {len(df)} propiedades")
     df = df.replace({np.nan: None})
     
-    # Limpieza segura de memoria
     records_copy = records.copy()
     records_copy.pop('elementList', None)
     return df, records_copy
@@ -109,7 +93,6 @@ class IdealistaHook:
         if response and response.status_code == 200:
             response_json = response.json()
             try:
-                # print(response_json)
                 self.jwt_token = response_json['access_token']
                 return True, {
                     "token": self.jwt_token,
@@ -167,16 +150,14 @@ class IdealistaHook:
             "t": "",
             "k": ""
         }
-        # propertyType is required, default to 'homes'
         payload['propertyType'] = kwargs.get('propertyType', 'homes')
         payload['operation'] = kwargs.get('operation', 'sale')
         payload['locale'] = kwargs.get('locale', 'es')
         payload['quality'] = kwargs.get('quality', 'high')
-        payload['order'] = kwargs.get('order', 'ratioeurm2') #Best price per m2
+        payload['order'] = kwargs.get('order', 'ratioeurm2')
         payload['gallery'] = True
 
 
-        # Aplicar lógica de sort automático si es necesario
         if kwargs.get("order") == 'floor_desc':
             actual_order = 'floor'
             payload["order"] = actual_order
@@ -188,7 +169,6 @@ class IdealistaHook:
         else:
             actual_order = kwargs.get("order") or 'weigh'
             payload["order"] = actual_order
-            # Auto-sort basado en order
             if actual_order == 'weigh':
                 payload["sort"] = 'desc'
             elif actual_order == 'publicationDate':
@@ -204,7 +184,6 @@ class IdealistaHook:
                 payload["order"] = actual_order
                 payload["sort"] = 'desc'
 
-        # Aplicar filtros agrupados
         for param_name, param_value in [
             ('minPrice', kwargs.get('minPrice')),
             ('maxPrice', kwargs.get('maxPrice')),
@@ -213,7 +192,6 @@ class IdealistaHook:
             if param_value is not None and param_value > 0:
                 payload[param_name] = float(param_value)
 
-        # Bedrooms y bathrooms
         if kwargs.get('bedrooms'):
             threshold = kwargs.get('bedrooms')
             payload["bedrooms"] = ','.join([str(n) for n in NUM_BEDROOMS if n >= threshold])
@@ -241,16 +219,12 @@ class IdealistaHook:
         if response.status_code == 200:
             try:
                 response_json = response.json()
-                # print(f"DEBUG: Response JSON keys: {list(response_json.keys())}")
                 if 'elementList' in response_json:
                     print(f"DEBUG: Found {len(response_json['elementList'])} elements")
-                    pass
                 if 'total' in response_json:
                     print(f"DEBUG: Total available: {response_json['total']}")
-                    pass
                 return True, response_json
             except Exception as e:
-                # print(f"DEBUG: Error parsing JSON response: {e}")
                 return False, {
                     "error": f"JSON parse error: {e}",
                     "status_code": response.status_code,

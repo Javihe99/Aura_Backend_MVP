@@ -24,7 +24,6 @@ class AuraPropertyManager:
         try:
             logger.info("Fetching exclusive Aura properties in random order...")
             
-            # Obtener todas las propiedades de la tabla aura_properties
             response = self.supabase.table('aura_properties')\
                 .select('*')\
                 .execute()
@@ -33,7 +32,6 @@ class AuraPropertyManager:
                 logger.warning("No exclusive properties found in aura_properties table")
                 return []
             
-            # Convertir a lista y mezclar aleatoriamente
             properties = list(response.data)
             random.shuffle(properties)
             

@@ -57,7 +57,6 @@ class RequestLimiter:
             if now - req_time < timedelta(minutes=1)
         ]
         
-        # Verificar si no excede el límite
         return len(self.request_history[session_id]) < self.rate_limit_per_minute
     
     def _add_request_to_history(self, session_id: str):
@@ -99,7 +98,6 @@ class RequestLimiter:
                 if req_time > cutoff_time
             ]
             
-            # Eliminar sesiones sin solicitudes recientes
             if not self.request_history[session_id]:
                 del self.request_history[session_id]
         

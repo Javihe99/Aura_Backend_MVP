@@ -27,7 +27,6 @@ class IntentClassifier:
             Dict con la clasificación de intención
         """
         try:
-            # Preparar el prompt con contexto si existe
             full_prompt = f"""
                     Contexto de conversación previa:
                     {conversation_context}
@@ -52,7 +51,6 @@ class IntentClassifier:
             
             classification = json.loads(result)
             
-            # Validar que la respuesta tenga el formato esperado
             if "intent" not in classification:
                 logger.warning("Invalid classification response, defaulting to property_search")
                 return {
@@ -65,7 +63,6 @@ class IntentClassifier:
             
         except Exception as e:
             logger.error(f"Error in intent classification: {str(e)}")
-            # En caso de error, asumir que es búsqueda de propiedades para mantener funcionalidad
             return {
                 "intent": "property_search",
                 "confidence": 0.3,
@@ -92,7 +89,6 @@ class SeniorRealEstateAgent:
             Respuesta generada por el senior de inmobiliaria
         """
         try:
-            # Preparar el prompt con contexto si existe
             full_prompt = f"""
 Contexto de conversación previa:
 {conversation_context}
@@ -119,7 +115,6 @@ Responde como un senior de inmobiliaria con experiencia, proporcionando informac
             
         except Exception as e:
             logger.error(f"Error generating senior agent response: {str(e)}")
-            # Respuesta de fallback
             return f"""Hola, soy un senior de inmobiliaria con más de 15 años de experiencia. 
 
 Me disculpo, pero estoy experimentando algunos problemas técnicos en este momento. 

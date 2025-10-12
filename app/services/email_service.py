@@ -20,12 +20,11 @@ class EmailService:
     
     def __init__(self):
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "465"))  # Cambiar a 465 (SSL directo)
+        self.smtp_port = int(os.getenv("SMTP_PORT", "465"))
         self.sender_email = os.getenv("SENDER_EMAIL", "javihe99@gmail.com")
-        self.sender_password = os.getenv("SENDER_PASSWORD")  # App password para Gmail
+        self.sender_password = os.getenv("SENDER_PASSWORD")
         self.recipient_email = os.getenv("RECIPIENT_EMAIL", "javihe99@gmail.com")
         
-        # Verificar configuración
         if not self.sender_password:
             logger.warning("SENDER_PASSWORD no configurado. El envío de emails no funcionará.")
     
@@ -40,37 +39,34 @@ class EmailService:
             True si el email se envió correctamente, False en caso contrario
         """
         try:
-            logger.info(f"🔍 Iniciando envío de email - SMTP: {self.smtp_server}:{self.smtp_port}")
-            logger.info(f"🔍 Sender: {self.sender_email}, Recipient: {self.recipient_email}")
+            logger.info(f"Iniciando envío de email - SMTP: {self.smtp_server}:{self.smtp_port}")
+            logger.info(f"Sender: {self.sender_email}, Recipient: {self.recipient_email}")
             
             if not self.sender_password:
-                logger.error("❌ No se puede enviar email: SENDER_PASSWORD no configurado")
+                logger.error("No se puede enviar email: SENDER_PASSWORD no configurado")
                 return False
             
-            # Crear contenido del email
-            subject = f"📅 Nueva Cita - {appointment_data.get('name', 'Cliente')}"
+            subject = f"Nueva Cita - {appointment_data.get('name', 'Cliente')}"
             body = self._create_email_body(appointment_data)
             logger.info("Cuerpo del email creado")
-            # Crear mensaje
+            
             message = MIMEMultipart("alternative")
             message["Subject"] = subject
             message["From"] = self.sender_email
             message["To"] = self.recipient_email
             
-            # Crear versión HTML del email
             html_body = self._create_html_email_body(appointment_data)
             logger.info("Cuerpo del email en HTML creado")
-            # Adjuntar versiones de texto y HTML
+            
             text_part = MIMEText(body, "plain", "utf-8")
             html_part = MIMEText(html_body, "html", "utf-8")
             
             message.attach(text_part)
             message.attach(html_part)
             
-            # Enviar email
             await self._send_email(message)
             
-            logger.info(f"✅ Email de notificación enviado exitosamente para cita {appointment_data.get('appointment_id')}")
+            logger.info(f"Email de notificación enviado exitosamente para cita {appointment_data.get('appointment_id')}")
             return True
             
         except Exception as e:
@@ -79,7 +75,6 @@ class EmailService:
     def _create_email_body(self, appointment_data: Dict[str, Any]) -> str:
         """Crea el cuerpo del email en texto plano"""
         
-        # Formatear fecha y hora
         appointment_time = appointment_data.get('appointment_time', '')
         try:
             if appointment_time:
@@ -133,7 +128,6 @@ class EmailService:
     def _create_html_email_body(self, appointment_data: Dict[str, Any]) -> str:
         """Crea el cuerpo del email en HTML"""
         
-        # Formatear fecha y hora
         appointment_time = appointment_data.get('appointment_time', '')
         try:
             if appointment_time:
@@ -322,48 +316,44 @@ class EmailService:
     async def _send_email(self, message: MIMEMultipart) -> None:
         """Envía el email usando SMTP con timeout"""
         try:
-            logger.info(f"🔗 Intentando conectar a {self.smtp_server}:{self.smtp_port}")
+            logger.info(f"Intentando conectar a {self.smtp_server}:{self.smtp_port}")
             
-            # Crear contexto SSL
             context = ssl.create_default_context()
             
-            # Usar SSL directo si el puerto es 465, STARTTLS si es 587
             if self.smtp_port == 465:
-                logger.info("🔐 Usando SSL directo (puerto 465)")
+                logger.info("Usando SSL directo (puerto 465)")
                 with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=30, context=context) as server:
-                    logger.info("✅ Conexión SSL establecida")
+                    logger.info("Conexión SSL establecida")
                     
-                    logger.info("🔑 Iniciando login...")
+                    logger.info("Iniciando login...")
                     server.login(self.sender_email, self.sender_password)
-                    logger.info("✅ Login exitoso")
+                    logger.info("Login exitoso")
                     
-                    # Enviar email
-                    logger.info("📤 Enviando email...")
+                    logger.info("Enviando email...")
                     text = message.as_string()
                     server.sendmail(self.sender_email, self.recipient_email, text)
-                    logger.info("✅ Email enviado al servidor SMTP")
+                    logger.info("Email enviado al servidor SMTP")
             else:
-                logger.info("🔐 Usando STARTTLS (puerto 587)")
+                logger.info("Usando STARTTLS (puerto 587)")
                 with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
-                    logger.info("✅ Conexión SMTP establecida")
+                    logger.info("Conexión SMTP establecida")
                     
-                    logger.info("🔐 Iniciando STARTTLS...")
+                    logger.info("Iniciando STARTTLS...")
                     server.starttls(context=context)
-                    logger.info("✅ STARTTLS completado")
+                    logger.info("STARTTLS completado")
                     
-                    logger.info("🔑 Iniciando login...")
+                    logger.info("Iniciando login...")
                     server.login(self.sender_email, self.sender_password)
-                    logger.info("✅ Login exitoso")
+                    logger.info("Login exitoso")
                     
-                    # Enviar email
-                    logger.info("📤 Enviando email...")
+                    logger.info("Enviando email...")
                     text = message.as_string()
                     server.sendmail(self.sender_email, self.recipient_email, text)
-                    logger.info("✅ Email enviado al servidor SMTP")
+                    logger.info("Email enviado al servidor SMTP")
                 
-            logger.info("📧 Email enviado exitosamente via SMTP")
+            logger.info("Email enviado exitosamente via SMTP")
             
         except Exception as e:
-            logger.error(f"❌ Error enviando email: {str(e)}")
-            logger.error(f"❌ Tipo de error: {type(e).__name__}")
+            logger.error(f"Error enviando email: {str(e)}")
+            logger.error(f"Tipo de error: {type(e).__name__}")
             raise

@@ -16,9 +16,8 @@ class PropertyManager:
         self.supabase = get_supabase_client()
         if not self.supabase:
             raise Exception("Supabase credentials not configured")
-        # Caché simple para propiedades por sesión
         self._session_cache = {}
-        self._cache_ttl = timedelta(minutes=5)  # TTL de 5 minutos
+        self._cache_ttl = timedelta(minutes=5)
     
     def _get_cache_key(self, session_id: str, limit: int) -> str:
         """Genera clave de caché para sesión y límite"""
@@ -42,7 +41,6 @@ class PropertyManager:
             logger.info(f"Cache hit for session {session_id} with limit {limit}")
             return cache_entry.get('data')
         
-        # Limpiar entrada expirada
         if cache_key in self._session_cache:
             del self._session_cache[cache_key]
         
@@ -68,15 +66,11 @@ class PropertyManager:
     
     def _prepare_properties_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepara el DataFrame de propiedades para inserción en la base de datos"""
-        # Crear una copia para no modificar el original
         df_processed = df.copy()
         
-        # Agregar timestamps
         current_time = datetime.now().isoformat()
         df_processed['created_at'] = current_time
         df_processed['updated_at'] = current_time
-        
-        # Mapear columnas del DataFrame (camelCase) a nombres de la base de datos (lowercase)
         column_mapping = {
             'propertyCode': 'propertycode',
             'numPhotos': 'numphotos',
@@ -133,20 +127,15 @@ class PropertyManager:
             'qualityScore': 'quality_score'
         }
         
-        # Aplicar mapeo de columnas
         df_processed = df_processed.rename(columns=column_mapping)
-        
-        # Limpiar valores NaN que no son compatibles con JSON
         df_processed = df_processed.replace({np.nan: None, np.inf: None, -np.inf: None})
         
-        # Limpiar campos de fecha inválidos
         date_columns = ['dropdate', 'created_at', 'updated_at']
         for col in date_columns:
             if col in df_processed.columns:
-                # Convertir timestamps de milisegundos a formato ISO válido
                 df_processed[col] = df_processed[col].apply(self._clean_date_value)
         
-        # Definir columnas esperadas en la base de datos (usando lowercase como están en la DB)
+        # Columnas esperadas en la base de datos
         expected_columns = [
             'propertycode', 'thumbnail', 'externalreference', 'numphotos', 'floor',
             'price', 'propertytype', 'operation', 'size', 'exterior', 'rooms',
@@ -168,12 +157,11 @@ class PropertyManager:
             'created_at', 'updated_at'
         ]
         
-        # Agregar columnas faltantes con valores None
         for col in expected_columns:
             if col not in df_processed.columns:
                 df_processed[col] = None
         
-        # Procesar campos JSON anidados - mapear objetos JSON completos a columnas JSONB
+        # Mapear objetos JSON completos a columnas JSONB
         json_object_mapping = {
             'priceInfo': 'priceinfo',
             'contactInfo': 'contactinfo',
@@ -186,12 +174,10 @@ class PropertyManager:
             'savedAd': 'savedad'
         }
         
-        # Aplicar mapeo de objetos JSON
         for json_field, db_field in json_object_mapping.items():
             if json_field in df_processed.columns:
                 df_processed[db_field] = df_processed[json_field]
         
-        # Seleccionar solo las columnas esperadas
         df_processed = df_processed[expected_columns]
         
         return df_processed
@@ -211,17 +197,13 @@ class PropertyManager:
             return None
         
         try:
-            # Si es un timestamp en milisegundos (número muy grande)
-            if isinstance(value, (int, float)) and value > 1000000000000:  # > año 2001 en milisegundos
-                # Convertir de milisegundos a segundos
+            if isinstance(value, (int, float)) and value > 1000000000000:
                 timestamp = value / 1000
-                # Verificar que esté en un rango válido (año 1970-2100)
-                if 0 <= timestamp <= 4102444800:  # 1970-2100
+                if 0 <= timestamp <= 4102444800:
                     return datetime.fromtimestamp(timestamp).isoformat()
                 else:
                     return None
             
-            # Si ya es una fecha válida
             elif isinstance(value, str) and value:
                 return value
             
@@ -230,7 +212,7 @@ class PropertyManager:
             return None
 
     async def save_properties(self, properties: List[Dict]) -> bool:
-        """Guarda una lista de propiedades en la base de datos usando upsert para preservar datos existentes"""
+        """Guarda una lista de propiedades en la base de datos usando upsert"""
         logger.info(f"PropertyManager.save_properties called with {len(properties)} properties")
         
         if not properties:
@@ -238,40 +220,32 @@ class PropertyManager:
             return False
             
         try:
-            # Convertir a DataFrame para operaciones vectorizadas
             df = pd.DataFrame(properties)
             logger.info(f"Created DataFrame with {len(df)} rows and {len(df.columns)} columns")
             
-            # Verificar que existe la columna propertyCode (camelCase) en el DataFrame original
             if 'propertyCode' not in df.columns:
                 logger.warning("No propertyCode column found in properties data")
                 logger.info(f"Available columns: {list(df.columns)}")
                 return False
             
-            # Eliminar filas sin propertyCode
             df = df.dropna(subset=['propertyCode'])
             if df.empty:
                 logger.warning("No valid properties to save (all missing propertyCode)")
                 return False
             
-            # Obtener lista de propertyCodes únicos
             property_codes = df['propertyCode'].unique().tolist()
             logger.info(f"Processing {len(property_codes)} unique property codes: {property_codes}")
             
-            # Preparar datos para upsert usando pandas
             logger.info("Preparing properties dataframe for upsert...")
             df_processed = self._prepare_properties_dataframe(df)
             logger.info(f"Processed DataFrame shape: {df_processed.shape}")
             
-            # Convertir DataFrame a lista de diccionarios para upsert
             properties_data = df_processed.to_dict('records')
             logger.info(f"Converted to {len(properties_data)} records for upsert")
             
-            # Usar upsert para actualizar o insertar propiedades
             if properties_data:
                 logger.info(f"Upserting {len(properties_data)} properties to database...")
                 try:
-                    # Especificar que el conflicto se resuelve por propertycode y reemplazar completamente
                     upsert_response = self.supabase.table('properties').upsert(
                         properties_data, 
                         on_conflict='propertycode',
@@ -281,10 +255,8 @@ class PropertyManager:
                     logger.info(f"Successfully replaced/inserted {len(properties_data)} properties to database")
                 except Exception as upsert_error:
                     logger.error(f"Error during upsert operation: {upsert_error}")
-                    # Si el upsert falla, intentar reemplazar propiedades existentes y insertar nuevas
                     logger.info("Attempting to replace existing properties and insert new ones...")
                     try:
-                        # Obtener propertycodes existentes
                         existing_codes = set()
                         for prop in properties_data:
                             code = prop.get('propertycode')
@@ -296,23 +268,15 @@ class PropertyManager:
                                 if existing_response.data:
                                     existing_codes.add(code)
                         
-                        # Separar propiedades existentes y nuevas
-                        existing_properties = [prop for prop in properties_data 
-                                             if prop.get('propertycode') in existing_codes]
-                        new_properties = [prop for prop in properties_data 
-                                        if prop.get('propertycode') not in existing_codes]
-                        
-                        # Eliminar propiedades existentes y luego insertar todas
                         if existing_codes:
-                            delete_response = self.supabase.table('properties')\
+                            self.supabase.table('properties')\
                                 .delete()\
                                 .in_('propertycode', list(existing_codes))\
                                 .execute()
                             logger.info(f"Deleted {len(existing_codes)} existing properties")
                         
-                        # Insertar todas las propiedades (existentes reemplazadas + nuevas)
                         if properties_data:
-                            insert_response = self.supabase.table('properties').insert(properties_data).execute()
+                            self.supabase.table('properties').insert(properties_data).execute()
                             logger.info(f"Successfully replaced/inserted {len(properties_data)} properties")
                             
                     except Exception as fallback_error:
@@ -328,15 +292,13 @@ class PropertyManager:
             return False
     
     async def get_properties_by_session(self, session_id: str, limit: int = 50) -> List[Dict]:
-        """Obtiene propiedades relacionadas con una sesión específica de forma ultra-eficiente"""
+        """Obtiene propiedades relacionadas con una sesión específica"""
         
-        # OPTIMIZACIÓN 0: Verificar caché primero
         cached_data = self._get_from_cache(session_id, limit)
         if cached_data is not None:
             return cached_data
             
         try:
-            # OPTIMIZACIÓN 1: Consulta corregida - obtener todo el metadata
             response = self.supabase.table('conversations')\
                 .select('metadata')\
                 .eq('session_id', session_id)\
@@ -349,7 +311,6 @@ class PropertyManager:
                 self._set_cache(session_id, limit, [])
                 return []
             
-            # OPTIMIZACIÓN 2: Procesamiento ultra-eficiente
             property_codes = set()
             for conv in response.data:
                 metadata = conv.get('metadata', {})
@@ -363,19 +324,16 @@ class PropertyManager:
                 self._set_cache(session_id, limit, [])
                 return []
             
-            # OPTIMIZACIÓN 3: Consulta optimizada con solo campos esenciales
             property_codes_list = list(property_codes)[:limit]
             
             properties_response = self.supabase.table('properties')\
-                .select('propertycode, price, size, rooms, bathrooms, address, latitude, longitude, thumbnail, created_at')\
+                .select('*')\
                 .in_('propertycode', property_codes_list)\
                 .order('created_at', desc=True)\
                 .limit(limit)\
                 .execute()
             
             result = properties_response.data if properties_response.data else []
-            
-            # Guardar en caché
             self._set_cache(session_id, limit, result)
             
             return result
@@ -405,7 +363,6 @@ class PropertyManager:
     async def get_properties_by_codes(self, property_codes: List[str]) -> Dict[str, List[Dict]]:
         """
         Obtiene propiedades por una lista de property codes.
-        Optimizado sin pandas para máxima eficiencia en búsquedas simples.
         
         Args:
             property_codes: Lista de códigos de propiedad a buscar
@@ -421,7 +378,6 @@ class PropertyManager:
             }
             
         try:
-            # Limpiar y validar los códigos (operación simple y rápida)
             clean_codes = [str(code).strip() for code in property_codes if str(code).strip()]
             
             if not clean_codes:
@@ -432,13 +388,11 @@ class PropertyManager:
             
             logger.info(f"Searching for {len(clean_codes)} property codes: {clean_codes[:5]}{'...' if len(clean_codes) > 5 else ''}")
             
-            # Búsqueda directa en Supabase (sin overhead de pandas)
             response = self.supabase.table('properties')\
                 .select('*')\
                 .in_('propertycode', clean_codes)\
                 .execute()
             
-            # Procesamiento simple con sets para eficiencia O(1) lookup
             found_properties = response.data if response.data else []
             found_codes = {prop['propertycode'] for prop in found_properties}
             not_found_codes = [code for code in clean_codes if code not in found_codes]

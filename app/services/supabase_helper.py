@@ -45,7 +45,6 @@ class SupabaseSingleton:
                 
             self._client = create_client(supabase_url, supabase_key)
             
-            # Verificar conexión solo una vez al inicializar
             self._client.table('conversations').select('id').limit(1).execute()
             logger.info("Supabase connection verified successfully")
             self._initialized = True
@@ -55,7 +54,6 @@ class SupabaseSingleton:
             self._client = None
             self._initialized = True
 
-# Instancia global del singleton
 _supabase_singleton = SupabaseSingleton()
 
 def get_supabase_client() -> Optional[Client]:

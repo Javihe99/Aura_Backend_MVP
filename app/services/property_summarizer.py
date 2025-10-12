@@ -18,9 +18,7 @@ class PropertySummarizer:
             return "No se encontraron propiedades que cumplan con los criterios especificados."
 
         try:
-            # Preparar información de las mejores propiedades
             top_properties = properties[:first_top_properties]
-            properties
             properties_info = []
 
             for i, prop in enumerate(top_properties, 1):
@@ -38,7 +36,6 @@ class PropertySummarizer:
 
                 properties_info.append(info)
 
-            # Crear prompt para el resumen
             prompt = f"""
             Contexto de conversación:
             {conversation_context}
@@ -50,7 +47,6 @@ class PropertySummarizer:
 
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            # Fallback manual si falla el LLM
             return PropertySummarizer._generate_fallback_summary(properties, top_properties)
 
     @staticmethod
@@ -60,12 +56,10 @@ class PropertySummarizer:
             return f"Se encontraron {len(properties)} propiedades."
 
         try:
-            # Calcular rango de precios
             prices = [p.get('price', 0) for p in top_properties if p.get('price')]
             min_price = min(prices) if prices else 0
             max_price = max(prices) if prices else 0
 
-            # Obtener características destacadas
             rooms = [p.get('rooms') for p in top_properties if p.get('rooms')]
             avg_rooms = sum(rooms) / len(rooms) if rooms else 0
 
