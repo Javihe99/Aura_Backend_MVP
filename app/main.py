@@ -405,20 +405,11 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             max_concurrent=5
         )
 
-        records = df.head(request.limit).to_dict(orient='records')
+        records = df_raw.head(request.limit).to_dict(orient='records')
         search_description = f"Búsqueda en radio de {request.metro}m desde coordenadas ({request.lat}, {request.lng})"
-        summarizer = get_service(app, 'summarizer')
-        summary = await summarizer.generate_summary(
-            records,
-            first_top_properties=request.limit,
-            conversation_context=search_description,
-            total_properties=len(df)
-        )
 
-        property_list = df['propertyCode'].tolist() if not df.empty else []
-        
         return ChatResponse(
-            llm_summary=summary,
+            llm_summary=search_description,
             properties=records,
             total_found=len(df),
             session_id=request.session_id or "maps",
@@ -806,47 +797,6 @@ async def get_service_stats():
         "active_tasks": len(app.state.task_manager.tasks),
         "timestamp": datetime.now().isoformat()
     }
-
-
-@app.post("/new_prompt", tags=["Legacy"])
-async def new_prompt_legacy(request: dict):
-    """
-    Endpoint legacy mantenido para compatibilidad.
-    
-    Se recomienda usar `/chat` para nuevas implementaciones.
-    """
-    logger.warning("Using legacy endpoint /new_prompt. Consider migrating to /chat")
-
-    chat_request = ChatRequest(
-        prompt=request.get("prompt", ""),
-        limit=int(request.get("limit", 200)),
-        session_id=request.get("session_id"),
-        ip_address=request.get("ip_address")
-    )
-
-    return await chat_search(chat_request, BackgroundTasks())
-
-
-@app.post("/new_maps", tags=["Legacy"])
-async def new_maps_legacy(request: dict):
-    """
-    Endpoint legacy mantenido para compatibilidad.
-    
-    Se recomienda usar `/maps` para nuevas implementaciones.
-    """
-    logger.warning("Using legacy endpoint /new_maps. Consider migrating to /maps")
-
-    maps_request = MapSearchRequest(
-        lng=float(request.get("lng", 0)),
-        lat=float(request.get("lat", 0)),
-        limit=int(request.get("limit", 200)),
-        metro=int(request.get("metro", 1000)),
-        session_id=request.get("session_id"),
-        ip_address=request.get("ip_address")
-    )
-
-    return await maps_search(maps_request, BackgroundTasks())
-
 
 if __name__ == "__main__":
     import uvicorn
