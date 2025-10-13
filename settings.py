@@ -99,9 +99,10 @@ bedrooms (int)
 
 bathrooms (int)
 
-preservations (String) — Estado de la propiedad. Valor por defecto: "".
+preservations (String) — Estado de la propiedad. Valor por defecto: "". Valores disponibles: newDevelopment, renew, good
 
-floorHeights (String) — Preferencia de planta. Valor por defecto: "".
+floorHeights (String) — Preferencia de planta. Valor por defecto: "". Valores disponivles: topFloor, intermediateFloor, groundFloor). Si el usuario dice “último piso” o “ático” usa “topFloor”. Si dice “bajo” o “planta baja” usa “groundFloor”. En otro caso intermediateFloor. Si no está claro o no se menciona, ignóralo.
+
 
 Property Type Filters (Booleanos)
 flat (Boolean) — All flat types (false)
