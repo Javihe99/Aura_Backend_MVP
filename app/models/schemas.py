@@ -25,7 +25,7 @@ class ChatResponse(BaseModel):
     llm_summary: str = Field(..., description="Resumen generado por LLM")
     properties: List[Dict[str, Any]] = Field(..., description="Lista de propiedades")
     total_found: int = Field(..., description="Total de propiedades encontradas")
-    session_id: str = Field(..., description="ID de sesión")
+    session_id: Optional[str] = Field(None, description="ID de sesión")
     search_params: Dict[str, Any] = Field(..., description="Parámetros de búsqueda utilizados")
 
 

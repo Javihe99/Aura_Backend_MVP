@@ -361,7 +361,7 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
     Busca propiedades en un radio específico alrededor de las coordenadas proporcionadas,
     aplicando filtros de calidad y generando resúmenes automáticos.
     """
-    session_id = request.session_id
+    session_id = request.session_id or "maps"
 
     try:
         await app.state.request_limiter.acquire(session_id)
@@ -380,19 +380,20 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
             suggestions = f"• Ampliar el radio de búsqueda (actual: {request.metro}m)\n• Considerar coordenadas cercanas\n• Revisar si hay propiedades en zonas adyacentes"
             no_properties_message = f"No se encontraron propiedades en el radio de {request.metro}m desde las coordenadas especificadas. {suggestions}"
 
-            memory_manager = get_service(app, 'memory_manager')
-            background_tasks.add_task(
-                memory_manager.save_message,
-                session_id, "system", no_properties_message,
-                {"lat": request.lat, "lng": request.lng, "radius": request.metro,
-                 "properties_found": 0, "property_list": []}, request.ip_address
-            )
+            if request.session_id:
+                memory_manager = get_service(app, 'memory_manager')
+                background_tasks.add_task(
+                    memory_manager.save_message,
+                    session_id, "system", no_properties_message,
+                    {"lat": request.lat, "lng": request.lng, "radius": request.metro,
+                     "properties_found": 0, "property_list": []}, request.ip_address
+                )
 
             return ChatResponse(
                 llm_summary=no_properties_message,
                 properties=[],
                 total_found=0,
-                session_id=session_id,
+                session_id=request.session_id or "maps",
                 search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
             )
 
@@ -415,20 +416,12 @@ async def maps_search(request: MapSearchRequest, background_tasks: BackgroundTas
         )
 
         property_list = df['propertyCode'].tolist() if not df.empty else []
-        memory_manager = get_service(app, 'memory_manager')
-
-        background_tasks.add_task(
-            memory_manager.save_message,
-            session_id, "system", search_description,
-            {"lat": request.lat, "lng": request.lng, "radius": request.metro,
-             "properties_found": len(records), "property_list": property_list}, request.ip_address
-        )
-
+        
         return ChatResponse(
             llm_summary=summary,
             properties=records,
             total_found=len(df),
-            session_id=session_id,
+            session_id=request.session_id or "maps",
             search_params={"lat": request.lat, "lng": request.lng, "radius": request.metro}
         )
 
